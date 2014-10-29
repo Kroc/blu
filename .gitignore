@@ -1,0 +1,10 @@
+*
+!.gitignore
+
+!*.txt
+!*.bas
+!*.cls
+!*.ctl
+!*.ctx
+!*.frm
+!*.frx

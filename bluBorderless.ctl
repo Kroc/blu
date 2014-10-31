@@ -7,9 +7,9 @@ Begin VB.UserControl bluBorderless
    ClientLeft      =   0
    ClientTop       =   0
    ClientWidth     =   480
-   ScaleHeight     =   32
+   ScaleHeight     =   40
    ScaleMode       =   3  'Pixel
-   ScaleWidth      =   32
+   ScaleWidth      =   40
    ToolboxBitmap   =   "bluBorderless.ctx":0000
 End
 Attribute VB_Name = "bluBorderless"
@@ -35,9 +35,9 @@ Option Explicit
     that automatically adjusts to the state of the form
 
 'On systems and settings where hardware accelerated DWM compositing is not available _
- bluBorderless disables itself and reverts to the standard window chrome. _
- It also does this in real time should the user disable the DWM by switching to a _
- non-accelerated theme
+ bluBorderless disables itself and reverts to the standard window chrome. It also does _
+ this in real time should the user disable the DWM by switching to a non-accelerated _
+ theme
 
 'Status             INCOMPLETE, DO NOT USE
 'Dependencies       blu.bas
@@ -510,8 +510,8 @@ Private Sub UserControl_ReadProperties(PropBag As PropertyBag)
         
         'Subclass this user control to do flicker-free painting
         Set Magic = New bluMagic
-        Call Magic.ssc_Subclass(UserControl.hWnd, 0, 1, Me)
-        Call Magic.ssc_AddMsg( _
+        Call Magic.Subclass(UserControl.hWnd, 0, 1, Me)
+        Call Magic.AddMsg( _
             UserControl.hWnd, MSG_BEFORE, _
             WM_PAINT, WM_ERASEBKGND _
         )
@@ -545,8 +545,8 @@ Private Sub UserControl_ReadProperties(PropBag As PropertyBag)
         'Subclass the parent form and begin listening into the message stream; _
          see the subclass section at the bottom of this file
         '(We pass the user param as `HTCAPTION` so you can drag the form from anywhere)
-        Call Magic.ssc_Subclass(ParentForm_hWnd, HT.HTCAPTION, 1, Me)
-        Call Magic.ssc_AddMsg( _
+        Call Magic.Subclass(ParentForm_hWnd, HT.HTCAPTION, 1, Me)
+        Call Magic.AddMsg( _
             ParentForm_hWnd, MSG_BEFORE, _
             WM_NCCALCSIZE, WM_GETMINMAXINFO, _
             WM_DWMCOMPOSITIONCHANGED, WM_THEMECHANGED, _
@@ -601,20 +601,20 @@ Private Sub UserControl_Terminate()
     'The object won't have been initialised in the IDE at design time
     If Not Magic Is Nothing Then
         'Detach subclassing from the control for flicker-free painting
-        Call Magic.ssc_DelMsg( _
+        Call Magic.DelMsg( _
             UserControl.hWnd, MSG_BEFORE, _
             WM_PAINT, WM_ERASEBKGND _
         )
-        Call Magic.ssc_UnSubclass(UserControl.hWnd)
+        Call Magic.UnSubclass(UserControl.hWnd)
         
         'Detatch the window messages
-        Call Magic.ssc_DelMsg( _
+        Call Magic.DelMsg( _
             ParentForm_hWnd, MSG_BEFORE, _
             WM_NCCALCSIZE, WM_GETMINMAXINFO, _
             WM_DWMCOMPOSITIONCHANGED, WM_THEMECHANGED, _
             WM_ACTIVATE, WM_NCLBUTTONDOWN, WM_LBUTTONDOWN, WM_LBUTTONDBLCLK _
         )
-        Call Magic.ssc_UnSubclass(ParentForm_hWnd)
+        Call Magic.UnSubclass(ParentForm_hWnd)
         
         'Detatch the subclassing from the controls registered as non-client handlers _
          (i.e. move / resize boxes). There might be an error here if you destroyed _
@@ -622,13 +622,12 @@ Private Sub UserControl_Terminate()
          unsubclass them itself, so it won't crash, but may still warn you)
         Dim i As Long
         For i = 1 To NonClientHandlers.Count
-            Call Magic.ssc_DelMsg( _
+            Call Magic.DelMsg( _
                 NonClientHandlers.Item(i), MSG_BEFORE, _
                 WM_LBUTTONDOWN, WM_LBUTTONDBLCLK _
             )
-            Call Magic.ssc_UnSubclass(NonClientHandlers.Item(i))
+            Call Magic.UnSubclass(NonClientHandlers.Item(i))
         Next
-        Call Magic.ssc_Terminate
         
         Set Magic = Nothing
         Set NonClientHandlers = Nothing
@@ -733,7 +732,7 @@ Public Property Let ChromaKey(ByVal Colour As OLE_COLOR)
     If blu.UserMode = True Then
         'Update the transparent colour used on the form
         Call user32_SetLayeredWindowAttributes( _
-            ParentForm_hWnd, blu.OLETranslateColor(My_ChromaKey), 0, LWA.LWA_COLORKEY _
+            ParentForm_hWnd, blu.OleTranslateColor(My_ChromaKey), 0, LWA.LWA_COLORKEY _
         )
     End If
     Call UserControl.PropertyChanged("ChromaKey")
@@ -973,7 +972,7 @@ Private Sub PaintButtons()
     Call blu.user32_GetClientRect(UserControl.hWnd, Box)
     'Fill the background colour
     Call blu.gdi32_SetDCBrushColor( _
-        UserControl.hDC, blu.OLETranslateColor(My_BaseColour) _
+        UserControl.hDC, blu.OleTranslateColor(My_BaseColour) _
     )
     Call blu.user32_FillRect( _
         UserControl.hDC, Box, blu.gdi32_GetStockObject(DC_BRUSH) _
@@ -1047,7 +1046,7 @@ Private Sub PaintButton( _
     
     'Draw the button background
     Call blu.gdi32_SetDCBrushColor( _
-        UserControl.hDC, blu.OLETranslateColor(BackColour) _
+        UserControl.hDC, blu.OleTranslateColor(BackColour) _
     )
     Call blu.user32_FillRect( _
         UserControl.hDC, Box, blu.gdi32_GetStockObject(DC_BRUSH) _
@@ -1090,12 +1089,12 @@ Private Sub RegisterNonClientHandler( _
         
         Call NonClientHandlers.Add(Item:=hndWindow, Key:=CStr(hndWindow))
         
-        Call Magic.ssc_Subclass( _
+        Call Magic.Subclass( _
             hndWindow, _
             Choose(HandlerType, HT.HTCAPTION, HT.HTBOTTOMRIGHT), _
             1, Me _
         )
-        Call Magic.ssc_AddMsg( _
+        Call Magic.AddMsg( _
             hndWindow, MSG_BEFORE, _
             WM_LBUTTONDOWN, WM_LBUTTONDBLCLK _
         )

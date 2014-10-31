@@ -35,7 +35,7 @@ Public Type POINT
 End Type
 
 'Effectively the same as POINT, but used for better readability
-Public Type Size
+Public Type SIZE
     Width As Long
     Height As Long
 End Type
@@ -505,7 +505,7 @@ End Enum
  <msdn.microsoft.com/en-us/library/windows/desktop/dd183374%28v=vs.85%29.aspx>
 Public Type BITMAPFILEHEADER
     Type As Integer
-    Size As Long
+    SIZE As Long
     Reserved1 As Integer
     Reserved2 As Integer
     OffsetToBits As Long
@@ -1385,7 +1385,7 @@ Public Function HSLToRGB( _
     ByVal Luminance As Long _
 ) As Long
     'by Donald (Sterex 1996), donald@xbeat.net, 20011124
-    Dim r As Long, G As Long, b As Long
+    Dim r As Long, G As Long, B As Long
     Dim lMax As Long, lMid As Long, lMin As Long
     Dim q As Single
 
@@ -1399,24 +1399,24 @@ Public Function HSLToRGB( _
         Select Case Hue
             Case 0 To 60
                 lMid = (Hue - 0) * q + lMin
-                r = lMax: G = lMid: b = lMin
+                r = lMax: G = lMid: B = lMin
             Case 60 To 120
                 lMid = -(Hue - 120) * q + lMin
-                r = lMid: G = lMax: b = lMin
+                r = lMid: G = lMax: B = lMin
             Case 120 To 180
                 lMid = (Hue - 120) * q + lMin
-                r = lMin: G = lMax: b = lMid
+                r = lMin: G = lMax: B = lMid
             Case 180 To 240
                 lMid = -(Hue - 240) * q + lMin
-                r = lMin: G = lMid: b = lMax
+                r = lMin: G = lMid: B = lMax
             Case 240 To 300
                 lMid = (Hue - 240) * q + lMin
-                r = lMid: G = lMin: b = lMax
+                r = lMid: G = lMin: B = lMax
             Case 300 To 360
                 lMid = -(Hue - 360) * q + lMin
-                r = lMax: G = lMin: b = lMid
+                r = lMax: G = lMin: B = lMid
         End Select
-        HSLToRGB = b * &H10000 + G * &H100& + r
+        HSLToRGB = B * &H10000 + G * &H100& + r
     Else
         HSLToRGB = lMax * &H10101
     End If
@@ -1511,7 +1511,7 @@ End Function
 '<www.xbeat.net/vbspeed/c_RGBToHSL.htm>
 Public Function RGBToHSL(ByVal RGBValue As Long) As HSL
     'by Paul - wpsjr1@syix.com, 20011120
-    Dim r As Long, G As Long, b As Long
+    Dim r As Long, G As Long, B As Long
     Dim lMax As Long, lMin As Long
     Dim q As Single
     Dim lDifference As Long
@@ -1530,17 +1530,17 @@ Public Function RGBToHSL(ByVal RGBValue As Long) As HSL
     
     r = RGBValue And &HFF
     G = (RGBValue And &HFF00&) \ &H100&
-    b = (RGBValue And &HFF0000) \ &H10000
+    B = (RGBValue And &HFF0000) \ &H10000
     
     If r > G Then
         lMax = r: lMin = G
     Else
         lMax = G: lMin = r
     End If
-    If b > lMax Then
-        lMax = b
-    ElseIf b < lMin Then
-        lMin = b
+    If B > lMax Then
+        lMax = B
+    ElseIf B < lMin Then
+        lMin = B
     End If
     
     RGBToHSL.Luminance = Lum(lMax)
@@ -1552,14 +1552,14 @@ Public Function RGBToHSL(ByVal RGBValue As Long) As HSL
         q = QTab(lDifference)
         Select Case lMax
             Case r
-                If b > G Then
-                    RGBToHSL.Hue = q * (G - b) + 360
+                If B > G Then
+                    RGBToHSL.Hue = q * (G - B) + 360
                 Else
-                    RGBToHSL.Hue = q * (G - b)
+                    RGBToHSL.Hue = q * (G - B)
                 End If
             Case G
-                RGBToHSL.Hue = q * (b - r) + 120
-            Case b
+                RGBToHSL.Hue = q * (B - r) + 120
+            Case B
                 RGBToHSL.Hue = q * (r - G) + 240
         End Select
     End If

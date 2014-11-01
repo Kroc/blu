@@ -24,6 +24,16 @@ Option Explicit
  expanded and methods for most of VB6's String functions are provided to work _
  directly on the String bytes
 
+'Special features of this class:
+
+' * Unicode (UCS-2) support
+
+' * Null-strings are supported, so no memory is allocated until content is added _
+    (other such string classes always seem to allocate their default buffer)
+
+' * Method-chaining allowing for some nice OOP behaviour; _
+    `bluString.Clone.Left(12).Append("...")`
+
 '/// API //////////////////////////////////////////////////////////////////////////////
 
 'Copy raw memory from one place to another _
@@ -79,6 +89,69 @@ Private Declare Function msvbvm60_VarPtr Lib "msvbvm60.dll" Alias "VarPtr" ( _
 Private CastStrSA1D As SAFEARRAY1D      'A dummy VB6 array header
 Private CastStrPtr  As Long             'Pointer to our dummy array
 Private CastStrArr() As Integer         'Empty array that will be hacked
+
+'Windows Version: _
+ --------------------------------------------------------------------------------------
+
+'In VB6 True is -1 and False is 0, but in the Win32 API it's 1 for True
+Private Enum BOOL
+    API_TRUE = 1
+    API_FALSE = 0
+End Enum
+
+'Structure for obtaining the Windows version _
+ <msdn.microsoft.com/en-us/library/windows/desktop/ms724834%28v=vs.85%29.aspx>
+Private Type OSVERSIONINFO
+    SizeOfMe As Long
+    MajorVersion As Long
+    MinorVersion As Long
+    BuildNumber As Long
+    PlatformID As Long
+    ServicePack As String * 128
+End Type
+
+'Get the Windows version _
+ <msdn.microsoft.com/en-us/library/windows/desktop/ms724451%28v=vs.85%29.aspx>
+Private Declare Function api_GetVersionEx Lib "kernel32" Alias "GetVersionExA" ( _
+    ByRef VersionInfo As OSVERSIONINFO _
+) As BOOL
+
+'Locale Mapping (for comparison and case conversion): _
+ --------------------------------------------------------------------------------------
+
+'Get the Locale Identifier (LCID) of this app _
+ <msdn.microsoft.com/en-us/library/windows/desktop/dd318127(v=vs.85).aspx>
+Private Declare Function api_GetThreadLocale Lib "kernel32" Alias "GetThreadLocale" ( _
+) As Long
+
+'Unicode & Locale-aware case conversion (amongst other things) _
+ <msdn.microsoft.com/en-us/library/windows/desktop/dd318700(v=vs.85).aspx>
+'Private Declare Function api_LCMapString Lib "kernel32" Alias "LCMapStringW" ( _
+') As Long
+
+'This page helped with translating the MSDN documentation into VB6; _
+ <www.ex-designz.net/apidetail.asp?api_id=383>
+
+'Comparison API return values; _
+ You can subtract 2 from these to get C-style values
+Private Enum CSTR_
+    CSTR_LESS_THAN = 1
+    CSTR_EQUAL = 2
+    CSTR_GREATER_THAN = 3
+End Enum
+
+'Unicode & Locale-aware string comparison _
+ <msdn.microsoft.com/en-us/library/windows/desktop/dd317759(v=vs.85).aspx>
+Private Declare Function api_CompareString Lib "kernel32.dll" Alias "CompareStringW" ( _
+    ByVal Locale As Long, _
+    ByVal CompareFlags As Long, _
+    ByVal String1 As String, _
+    ByVal String1Chars As Long, _
+    ByVal String2 As String, _
+    ByVal String2Chars As Long _
+) As CSTR_
+
+Private Const LINGUISTIC_IGNORECASE As Long = &H10&
 
 '/// CLASS STORAGE ////////////////////////////////////////////////////////////////////
 
@@ -232,9 +305,30 @@ End Function
 'Compare : A fast method to check if one string equals another _
  ======================================================================================
 Public Function Compare( _
-    ByRef Comparison As String _
+             ByRef Comparison As String, _
+    Optional ByRef CompareMethod As VBA.VbCompareMethod = vbTextCompare _
 ) As Boolean
-    '
+    'The APIs used default to binary search, with a flag for ignoring case
+    Dim Flags As Long
+    If CompareMethod = vbTextCompare Then Let Flags = LINGUISTIC_IGNORECASE
+    
+'    If WindowsVersion >= 6 Then
+        
+    'Fall back to the XP-compatible API
+'    Else
+        'Get the Locale ID in use. This isn't perfect when it comes to customised _
+         locales, which is why Vista and above use new APIs
+        Dim LCID As Long
+        Let LCID = api_GetThreadLocale()
+        'Throw the strings at the API to handle string comparison. _
+         I haven't worked out yet to do this without having to make a copy of our _
+         string with `Me.Text`
+        Let Compare = (api_CompareString( _
+            LCID, Flags, _
+            Me.Text, -1, _
+            Comparison, -1 _
+        ) = CSTR_EQUAL)
+'    End If
 End Function
 
 'Format : Format the text according to a pattern _
@@ -426,7 +520,7 @@ Public Property Let Text( _
         'Set the new length of our String. The buffer will be increased appropriately
         Let Me.Length = Len(NewString)
         'Copy the String data over
-        Call api_RtlMoveMemory(Data(0), ByVal NewString, LenB(NewString))
+        Call api_RtlMoveMemory(Data(0), ByVal StrPtr(NewString), LenB(NewString))
     End If
 End Property
 
@@ -477,3 +571,21 @@ Public Function WriteFile( _
     'Allow method chaining
     Set WriteFile = Me
 End Function
+
+'/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
+
+'PROPERTY WindowsVersion : As a Kernel number, i.e. 6.0 = Vista, 6.1 = "7", 6.2 = "8" _
+ ======================================================================================
+Private Property Get WindowsVersion() As Single
+    'NOTE: If the app is in compatibility mode, this will return the compatible _
+     Windows version, not the actual version; but that's fine with me
+    'Windows 8.1 and above also cause this API to always return as Windows 8.0 unless _
+     the app opts-in to correct version info via manifest, but this isn't an issue to _
+     bluString as we are only concerned with Windows Vista+
+    Dim VersionInfo As OSVERSIONINFO
+    Let VersionInfo.SizeOfMe = Len(VersionInfo)
+    If api_GetVersionEx(VersionInfo) = API_TRUE Then
+        Let WindowsVersion = _
+            CSng(VersionInfo.MajorVersion & "." & VersionInfo.MinorVersion)
+    End If
+End Property

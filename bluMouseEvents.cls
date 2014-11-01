@@ -155,20 +155,19 @@ Private Sub Class_Terminate()
     If Not Magic Is Nothing Then
         'If a parent form was specified to subclass, detach the mouse wheel _
          messages from that separately from the main target
-        Call Magic.ssc_DelMsg( _
+        Call Magic.DelMsg( _
             IIf(hndParentForm = 0, hndTarget, hndParentForm), MSG_BEFORE, _
             WM_MOUSEWHEEL, WM_MOUSEHWHEEL _
         )
         'And unsubclass the parent form
         If hndParentForm <> 0 Then _
-            Magic.ssc_UnSubclass (hndParentForm)
+            Magic.UnSubclass (hndParentForm)
         'Unsubclass the main target
-        Call Magic.ssc_DelMsg( _
+        Call Magic.DelMsg( _
             hndTarget, MSG_BEFORE, _
             WM_SETCURSOR, WM_MOUSEMOVE, WM_MOUSEHOVER, WM_MOUSELEAVE, WM_XBUTTONDOWN _
         )
-        Call Magic.ssc_UnSubclass(hndTarget)
-        Call Magic.ssc_Terminate
+        Call Magic.UnSubclass(hndTarget)
         Set Magic = Nothing
     End If
 End Sub
@@ -200,7 +199,7 @@ Public Sub Attach( _
     'Start subclassing (see the subclass section at the bottom of the file)
     Set Magic = New bluMagic
     'First, subclass the main target
-    If Magic.ssc_Subclass(hndTarget, , , Me) Then
+    If Magic.Subclass(hndTarget, , , Me) Then
         'Prepare the mouse tracking API, we want to receive `WM_MOUSEHOVER` and _
          `WM_MOUSELEAVE` messages
         With TME
@@ -215,7 +214,7 @@ Public Sub Attach( _
             Let IsTracking = True
             Let IsOut = False
             'Listen into the mouse events
-            Call Magic.ssc_AddMsg( _
+            Call Magic.AddMsg( _
                 hndTarget, MSG_BEFORE, _
                 WM_SETCURSOR, WM_MOUSEMOVE, WM_MOUSEHOVER, WM_MOUSELEAVE, _
                 WM_XBUTTONDOWN _
@@ -225,10 +224,10 @@ Public Sub Attach( _
         'If a parent form is given, subclass it. The mouse wheel events require the _
          window to be focused, so it's best to subclass the parent form which will _
          always be focused regardless of the other control's focus
-        If hndParentForm <> 0 Then Call Magic.ssc_Subclass(hndParentForm, , , Me)
+        If hndParentForm <> 0 Then Call Magic.Subclass(hndParentForm, , , Me)
         'Add the mouse wheel events to the subclassing, either to the main target _
          or the parent form (if given)
-        Call Magic.ssc_AddMsg( _
+        Call Magic.AddMsg( _
             IIf(hndParentForm = 0, hndTarget, hndParentForm), MSG_BEFORE, _
             WM_MOUSEWHEEL, WM_MOUSEHWHEEL _
         )

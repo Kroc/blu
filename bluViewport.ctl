@@ -6,9 +6,9 @@ Begin VB.UserControl bluViewport
    ClientLeft      =   0
    ClientTop       =   0
    ClientWidth     =   4800
-   ScaleHeight     =   240
+   ScaleHeight     =   300
    ScaleMode       =   3  'Pixel
-   ScaleWidth      =   320
+   ScaleWidth      =   400
    ToolboxBitmap   =   "bluViewport.ctx":0000
 End
 Attribute VB_Name = "bluViewport"
@@ -209,10 +209,10 @@ Private Type CACHEVARS
     Centre As POINT
     'The destination size to paint. If the image is centred because it is smaller than _
      the viewport, the destination size will be less than the viewport width / height
-    Dst As SIZE
+    Dst As Size
     'The source portion of the image. At Zoom=1, this is the same as Dst, but when _
      zoomed, it's a smaller area, that is stretched to the Dst size
-    Src As SIZE
+    Src As Size
 End Type
 Private c As CACHEVARS
 
@@ -381,8 +381,8 @@ Private Sub UserControl_ReadProperties(PropBag As PropertyBag)
         )
         'Subclass the control to listen to scroll bar events
         Set Magic = New bluMagic
-        Call Magic.ssc_Subclass(UserControl.hWnd, 0, 1, Me)
-        Call Magic.ssc_AddMsg( _
+        Call Magic.Subclass(UserControl.hWnd, 0, 1, Me)
+        Call Magic.AddMsg( _
             UserControl.hWnd, MSG_BEFORE, _
             WM_PAINT, WM_ERASEBKGND, WM_HSCROLL, WM_VSCROLL, _
             WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_NCMBUTTONDOWN _
@@ -409,12 +409,12 @@ Private Sub UserControl_Terminate()
     'Carefully detatch the subclassing
     Set MouseEvents = Nothing
     If Not Magic Is Nothing Then
-        Call Magic.ssc_DelMsg( _
+        Call Magic.DelMsg( _
             UserControl.hWnd, MSG_BEFORE, _
             WM_PAINT, WM_ERASEBKGND, WM_HSCROLL, WM_VSCROLL, _
             WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_NCMBUTTONDOWN _
         )
-        Call Magic.ssc_UnSubclass(UserControl.hWnd)
+        Call Magic.UnSubclass(UserControl.hWnd)
         Set Magic = Nothing
     End If
 End Sub
@@ -519,7 +519,7 @@ Public Property Let BackColor(ByVal Color As OLE_COLOR)
     Let UserControl.BackColor = Color
     'Cache the new back colour ready for painting. If it's a system colour _
      (e.g. `vbApplicationWorkspace`, then translate it to the real colour)
-    Let c.UserControl_BackColor = blu.OLETranslateColor(Color)
+    Let c.UserControl_BackColor = blu.OleTranslateColor(Color)
     'Apply the colour to the back buffer DC, this will automatically be used at paint
     If Not Buffer Is Nothing Then
         Call blu.gdi32_SetDCBrushColor( _
@@ -619,7 +619,7 @@ Public Property Let PaletteColour( _
     If Layers(Layer).IMAGE.Depth <> [8-Bit] Then Exit Property
     
     'Should the colour be a system colour (like "button face"), get the real colour
-    Let NewColour = blu.OLETranslateColor(NewColour)
+    Let NewColour = blu.OleTranslateColor(NewColour)
 
     'Prepre the colour structure to use with the API call
     Dim QuadColour As blu.RGBQUAD
@@ -938,7 +938,7 @@ Private Sub InitScrollBars()
     'Show / Hide scrollbars? _
      ----------------------------------------------------------------------------------
     'The size of the image, accounting for zooming
-    Dim ImageSize As SIZE
+    Dim ImageSize As Size
     Let ImageSize.Width = c.ImageRECT.Right * My_Zoom
     Let ImageSize.Height = c.ImageRECT.Bottom * My_Zoom
     

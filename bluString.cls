@@ -41,6 +41,12 @@ Private Declare Sub api_RtlZeroMemory Lib "kernel32" Alias "RtlZeroMemory" ( _
     ByVal Length As Long _
 )
 
+'Undocumented VB6 API to write 4-bytes (Long) of memory
+Private Declare Sub api_PutMem4 Lib "msvbvm60.dll" Alias "PutMem4" ( _
+    ByVal Addr As Long, _
+    ByVal NewVal As Long _
+)
+
 'Cast String to Array: _
  --------------------------------------------------------------------------------------
 'By manipulating some pointers we can cast a VB String directly into an array without _
@@ -69,12 +75,6 @@ Private Const FADF_FIXEDSIZE As Integer = &H10
 Private Declare Function msvbvm60_VarPtr Lib "msvbvm60.dll" Alias "VarPtr" ( _
     ByRef ArrayVar() As Any _
 ) As Long
-
-'Undocumented VB6 API to write 4-bytes (Long) of memory
-Private Declare Sub msvbvm60_PutMem4 Lib "msvbvm60.dll" Alias "PutMem4" ( _
-    ByVal Addr As Long, _
-    ByVal NewVal As Long _
-)
 
 Private CastStrSA1D As SAFEARRAY1D      'A dummy VB6 array header
 Private CastStrPtr  As Long             'Pointer to our dummy array
@@ -108,7 +108,7 @@ Private Sub Class_Initialize()
      any Strings that we want to use as arrays
     Let CastStrPtr = msvbvm60_VarPtr(CastStrArr())
     'Swap the String headers over
-    Call msvbvm60_PutMem4(CastStrPtr, VarPtr(CastStrSA1D))
+    Call api_PutMem4(CastStrPtr, VarPtr(CastStrSA1D))
     
     'NOTE: The buffer is not initialised to begin with _
           (therefore not wasting memory for a string that is not yet populated, _
@@ -124,10 +124,17 @@ Private Sub Class_Terminate()
     
     'Clean up our array hacking (for casting a String to an array) _
      otherwise VB will crash when it frees up the memory
-    Call msvbvm60_PutMem4(CastStrPtr, 0&)
+    Call api_PutMem4(CastStrPtr, 0&)
 End Sub
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
+
+'ANSI : Provides an ANSI version (1-byte per character) of the String _
+ ======================================================================================
+Public Function ANSI() As String
+    'Use this function to get strings for ANSI Windows APIs
+    'TODO
+End Function
 
 'Append : Add another string to the end of the current string _
  ======================================================================================
@@ -164,11 +171,11 @@ Public Property Let Buffer( _
     Let Data(My_Buffer) = 0
 End Property
 
-'Char : The Unicode (UCS-2) of the character at the provided character index _
+'Char : The Unicode (UCS-2) point of the character at the provided character index _
  ======================================================================================
 Public Property Get Char( _
     ByRef Index As Long _
-) As Integer
+) As Long
     'NOTE: Though `My_Length` is 1-based, but `Index` is 0-based, we allow the user _
            to access the spare element at the end as it will be the null terminator, _
            which the end-user may wish to check for (blind-looping, for example)
@@ -179,13 +186,18 @@ Public Property Get Char( _
     Let Char = Data(Index)
 End Property
 Public Property Let Char( _
-    ByRef Index As Long, ByRef Char As Integer _
+    ByRef Index As Long, ByRef Char As Long _
 )
     'If a character index is provided outside of the length of the string, error. _
      (note that, compared to the getter, you may not write to the null terminator)
     If Index >= My_Length Then Err.Raise (9): Exit Property
-    'Set the character value at that point
-    Let Data(Index) = Char
+    'VB6 can only do signed Integers, so Unicode pointer 32'768+ will error unless _
+     we convert them to their signed equivilent to stuff them into two bytes
+    If Char >= 32768 Then
+        Let Data(Index) = (Char And &HFFFF&) - 65536
+    Else
+        Let Data(Index) = (Char And &HFFFF&)
+    End If
 End Property
 
 'Clear : Wipe the stored string, fill the buffer with nulls _
@@ -228,10 +240,20 @@ End Function
 'Format : Format the text according to a pattern _
  ======================================================================================
 Public Function Format() As bluString
+    'TODO: we need to decide what form this is going to take. _
+     a `printf` impl.? use VB's format? Or go for separate methods like `formatNumber`?
+
+    'Allow method chaining
+    Set Format = Me
+End Function
+
+'Insert : Insert some text in the middle of the existing string _
+ ======================================================================================
+Public Function Insert() As bluString
     'TODO
     
     'Allow method chaining
-    Set Format = Me
+    Set Insert = Me
 End Function
 
 'Join : Appends a bluString to the end of this one _
@@ -247,7 +269,6 @@ End Function
 
 'LCase : Convert our string to lowercase _
  ======================================================================================
-'TODO: We'll need a hefty look up table of UCS-2 case conversion
 Public Function LCase() As bluString
     'TODO
     
@@ -348,13 +369,13 @@ Public Function ReadFile( _
     Set ReadFile = Me
 End Function
 
-'Right : Keep only the given right-most number of characters _
+'Remove : Cut some text out of the middle of the existing string _
  ======================================================================================
-Public Function Right() As bluString
+Public Function Remove() As bluString
     'TODO
     
     'Allow method chaining
-    Set Right = Me
+    Set Remove = Me
 End Function
 
 'Replace : Search for a sub-string and replace it with another _
@@ -367,6 +388,15 @@ Public Function Replace( _
     
     'Allow method chaining
     Set Replace = Me
+End Function
+
+'Right : Keep only the given right-most number of characters _
+ ======================================================================================
+Public Function Right() As bluString
+    'TODO
+    
+    'Allow method chaining
+    Set Right = Me
 End Function
 
 'Text : Get/Let the contents as native VB strings _
@@ -430,7 +460,6 @@ End Function
 
 'UCase : Convert our string to UPPERCASE _
  ======================================================================================
-'TODO: We'll need a hefty look up table of UCS-2 case conversion
 Public Function UCase()
     'TODO
     

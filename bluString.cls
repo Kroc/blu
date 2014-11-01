@@ -127,34 +127,27 @@ Private Sub Class_Terminate()
     Call msvbvm60_PutMem4(CastStrPtr, 0&)
 End Sub
 
-'/// PROPERTIES ///////////////////////////////////////////////////////////////////////
+'/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
 
-'PROPERTY Char : The Unicode (UCS-2) of the character at the provided character index _
+'Append : Add another string to the end of the current string _
  ======================================================================================
-Public Property Get Char( _
-    ByRef Index As Long _
-) As Long
-    'NOTE: Though `My_Length` is 1-based, but `Index` is 0-based, we allow the user _
-           to access the spare element at the end as it will be the null terminator, _
-           which the end-user may wish to check for (blind-looping, for example)
-           
-    'If a character index is provided outside of the length of the string, error
-    If Index > My_Length Then Err.Raise (9): Exit Property
-    'Return the character value in question. The user can use `And &HFF` to get ASCII
-    Let Char = Data(Index)
-End Property
-Public Property Let Char( _
-    ByRef Index As Long, ByRef Char As Long _
-)
-    'If a character index is provided outside of the length of the string, error. _
-     (note that, compared to the getter, you may not write to the null terminator)
-    If Index >= My_Length Then Err.Raise (9): Exit Property
-    'Set the character value at that point _
-     (Longs are used purely for speed, any value above &HFFFF is clipped)
-    Let Data(Index) = Char And &HFFFF&
-End Property
+Public Function Append( _
+    ByRef InputString As String _
+) As bluString
+    'Appending a null-string will do nothing
+    If InputString = vbNullString Or LenB(InputString) = 0 Then Exit Function
+    'The current length will be the starting position of the appended string
+    Dim Start As Long: Let Start = My_Length
+    'Increase the length accordingly
+    Let Me.Length = My_Length + Len(InputString)
+    'Copy the new string in
+    Call api_RtlMoveMemory(Data(Start), ByVal InputString, LenB(InputString))
+    
+    'Allow method chaining
+    Set Append = Me
+End Function
 
-'PROPERTY Buffer : Number of characters to reserve in memory for the string _
+'Buffer : Number of characters to reserve in memory for the string _
  ======================================================================================
 Public Property Get Buffer() As Long: Let Buffer = My_Buffer: End Property
 Public Property Let Buffer( _
@@ -171,91 +164,33 @@ Public Property Let Buffer( _
     Let Data(My_Buffer) = 0
 End Property
 
-'PROPERTY Length : Length of the actual stored text (1-based), not the buffer _
+'Char : The Unicode (UCS-2) of the character at the provided character index _
  ======================================================================================
-Public Property Get Length() As Long: Let Length = My_Length: End Property
-Public Property Let Length( _
-    ByRef NewLength As Long _
+Public Property Get Char( _
+    ByRef Index As Long _
+) As Integer
+    'NOTE: Though `My_Length` is 1-based, but `Index` is 0-based, we allow the user _
+           to access the spare element at the end as it will be the null terminator, _
+           which the end-user may wish to check for (blind-looping, for example)
+           
+    'If a character index is provided outside of the length of the string, error
+    If Index > My_Length Then Err.Raise (9): Exit Property
+    'Return the character value in question. The user can use `And &HFF` to get ASCII
+    Let Char = Data(Index)
+End Property
+Public Property Let Char( _
+    ByRef Index As Long, ByRef Char As Integer _
 )
-    'Store the new desired content length (1-based)
-    Let My_Length = NewLength
-    'If the buffer has not been initialised, start with the default length
-    If My_Buffer = 0 Then Let My_Buffer = DEFAULT_BUFFER
-    
-TestBuffer:
-    'If this increases the data too large
-    If My_Length > My_Buffer Then
-        'Double the length of the buffer
-        Let My_Buffer = My_Buffer * 2
-        'Re-check if this is large enough
-        GoTo TestBuffer
-    End If
-    'Apply the new buffer length _
-     (this will do the actual memory allocation)
-    Let Me.Buffer = My_Buffer
-    
-    'WARNING: Increasing the content-length via this property, instead of by-proxy _
-     via methods such as `Append` may leave 'junk' data in the increased space!
+    'If a character index is provided outside of the length of the string, error. _
+     (note that, compared to the getter, you may not write to the null terminator)
+    If Index >= My_Length Then Err.Raise (9): Exit Property
+    'Set the character value at that point
+    Let Data(Index) = Char
 End Property
-
-'PROPERTY Pointer : Allow access to the "string" pointer for external copying _
- ======================================================================================
-Public Property Get Pointer() As Long
-    'If a null string, return a null-string pointer
-    If My_Length = 0 Then
-        Let Pointer = VarPtr(vbNullString)
-    Else
-        Let Pointer = VarPtr(Data(0))
-    End If
-End Property
-
-'PROPERTY Text : Get/Let the contents as native VB strings _
- ======================================================================================
-Public Property Get Text() As String
-Attribute Text.VB_MemberFlags = "200"
-    'If ours is a null-string, return a null-string
-    If My_Length = 0 Then
-        Let Text = vbNullString
-    Else
-        'Pad the return String to the right size
-        Let Text = Space$(My_Length)
-        'Copy our String into the return field
-        Call api_RtlMoveMemory(ByVal Text, Data(0), LenB(Text))
-    End If
-End Property
-Public Property Let Text( _
-    ByRef NewString As String _
-)   'If a null-string is provided then set ours to a null string
-    If NewString = vbNullString Or LenB(NewString) = 0 Then
-        Call Me.Clear
-    Else
-        'Set the new length of our String. The buffer will be increased appropriately
-        Let Me.Length = Len(NewString)
-        'Copy the String data over
-        Call api_RtlMoveMemory(Data(0), ByVal NewString, LenB(NewString))
-    End If
-End Property
-
-'/// PUBLIC PROCEDURES ////////////////////////////////////////////////////////////////
-
-'Append : Add another string to the end of the current string _
- ======================================================================================
-Public Sub Append( _
-    ByRef InputString As String _
-)
-    'Appending a null-string will do nothing
-    If InputString = vbNullString Or LenB(InputString) = 0 Then Exit Sub
-    'The current length will be the starting position of the appended string
-    Dim Start As Long: Let Start = My_Length
-    'Increase the length accordingly
-    Let Me.Length = My_Length + Len(InputString)
-    'Copy the new string in
-    
-End Sub
 
 'Clear : Wipe the stored string, fill the buffer with nulls _
  ======================================================================================
-Public Sub Clear()
+Public Function Clear() As bluString
     'You can't clear a null-string any more than it is!
     If My_Length > 0 Then
         'This does not change the size of the buffer, should it have increased. _
@@ -265,7 +200,9 @@ Public Sub Clear()
         'Mark the string as being null-length
         Let My_Length = 0
     End If
-End Sub
+    'Allow method chaining
+    Set Clear = Me
+End Function
 
 'Clone : Duplicate our string into another bluString instance _
  ======================================================================================
@@ -290,59 +227,224 @@ End Function
 
 'Format : Format the text according to a pattern _
  ======================================================================================
-Public Sub Format()
-
-End Sub
+Public Function Format() As bluString
+    'TODO
+    
+    'Allow method chaining
+    Set Format = Me
+End Function
 
 'Join : Appends a bluString to the end of this one _
  ======================================================================================
-Public Sub Join( _
+Public Function Join( _
     ByRef InputString As bluString _
-)
-    '
-End Sub
+) As bluString
+    'TODO
+    
+    'Allow method chaining
+    Set Join = Me
+End Function
 
 'LCase : Convert our string to lowercase _
  ======================================================================================
 'TODO: We'll need a hefty look up table of UCS-2 case conversion
-Public Sub LCase()
-    '
-End Sub
+Public Function LCase() As bluString
+    'TODO
+    
+    'Allow method chaining
+    Set LCase = Me
+End Function
+
+'Left : Cut the string short to a given number of characters _
+ ======================================================================================
+Public Function Left( _
+    ByRef NumberOfCharacters As Long _
+) As bluString
+    'You can't increase the length with this!
+    If NumberOfCharacters > My_Length Then Err.Raise (9): Exit Function
+    'Do the reduction
+    Let Me.Length = NumberOfCharacters
+    
+    'Allow method chaining
+    Set Left = Me
+End Function
+
+'Length : Length of the actual stored text (1-based), not the buffer _
+ ======================================================================================
+Public Property Get Length() As Long: Let Length = My_Length: End Property
+Public Property Let Length( _
+    ByRef NewLength As Long _
+)   'Store the new desired content length (1-based)
+    Let My_Length = NewLength
+    'If the buffer has not been initialised, start with the default length
+    If My_Buffer = 0 Then Let My_Buffer = DEFAULT_BUFFER
+    
+TestBuffer:
+    'If this increases the data too large
+    If My_Length > My_Buffer Then
+        'Double the length of the buffer
+        Let My_Buffer = My_Buffer * 2
+        'Re-check if this is large enough
+        GoTo TestBuffer
+    End If
+    'Apply the new buffer length _
+     (this will do the actual memory allocation)
+    Let Me.Buffer = My_Buffer
+    
+    'WARNING: Increasing the content-length via this property, instead of by-proxy _
+     via methods such as `Append` may leave 'junk' data in the increased space!
+    Let Data(My_Length) = 0
+End Property
+
+'Mid : Reduce the string to a sub-string portion _
+ ======================================================================================
+Public Function Mid() As bluString
+    'TODO
+    
+    'Allow method chaining
+    Set Mid = Me
+End Function
+
+'Pointer : Allow access to the "string" pointer for external copying _
+ ======================================================================================
+Public Property Get Pointer() As Long
+    'If a null string, return a null-string pointer
+    If My_Length = 0 Then
+        Let Pointer = VarPtr(vbNullString)
+    Else
+        Let Pointer = VarPtr(Data(0))
+    End If
+End Property
 
 'Prepend : Add our string to the end of the one provided _
  ======================================================================================
-Public Sub Prepend( _
+'And no, "prefix" is not the right word for this!
+Public Function Prepend( _
     ByRef InputString As String _
-)   'No, "prefix" is not the right word for this!
+) As bluString
+    'Prepending a null-string will do nothing
+    If InputString = vbNullString Or LenB(InputString) = 0 Then Exit Function
+    'The current length will be the new starting position of our string
+    Dim Start As Long: Let Start = My_Length
+    'Increase the length accordingly
+    Let Me.Length = My_Length + Len(InputString)
+    'Shift our string up
+    Call api_RtlMoveMemory(Data(Start), Data(0), My_Length * 2)
+    'Copy the new string in
+    Call api_RtlMoveMemory(Data(0), ByVal InputString, LenB(InputString))
     
-End Sub
+    'Allow method chaining
+    Set Prepend = Me
+End Function
 
 'ReadFile : Import our string from a file _
  ======================================================================================
-Public Sub ReadFile( _
+Public Function ReadFile( _
     ByRef FilePath As String _
-)
-    '
-End Sub
+) As bluString
+    'TODO
+    
+    'Allow method chaining
+    Set ReadFile = Me
+End Function
+
+'Right : Keep only the given right-most number of characters _
+ ======================================================================================
+Public Function Right() As bluString
+    'TODO
+    
+    'Allow method chaining
+    Set Right = Me
+End Function
+
+'Replace : Search for a sub-string and replace it with another _
+ ======================================================================================
+Public Function Replace( _
+    ByRef SearchFor As String, _
+    ByRef ReplaceWith As String _
+) As bluString
+    'TODO
+    
+    'Allow method chaining
+    Set Replace = Me
+End Function
+
+'Text : Get/Let the contents as native VB strings _
+ ======================================================================================
+Public Property Get Text() As String
+    'If ours is a null-string, return a null-string
+    If My_Length = 0 Then
+        Let Text = vbNullString
+    Else
+        'Pad the return String to the right size
+        Let Text = Space$(My_Length)
+        'Take the string, and attach it to our dummy array header
+        With CastStrSA1D
+            Let .pvData = StrPtr(Text)
+            Let .cElements = LenB(Text)
+        End With
+        'Copy our String into the return field
+        Call api_RtlMoveMemory(CastStrArr(0), Data(0), My_Length * 2)
+    End If
+End Property
+Public Property Let Text( _
+    ByRef NewString As String _
+)   'If a null-string is provided then set ours to a null string
+    If NewString = vbNullString Or LenB(NewString) = 0 Then
+        Call Me.Clear
+    Else
+        'Set the new length of our String. The buffer will be increased appropriately
+        Let Me.Length = Len(NewString)
+        'Copy the String data over
+        Call api_RtlMoveMemory(Data(0), ByVal NewString, LenB(NewString))
+    End If
+End Property
 
 'Trim : Strip whitespace characters from the beginning and end _
  ======================================================================================
 'TODO: We may want a look-up table of all whitespace chars in UCS-2
-Public Sub Trim()
-    '
-End Sub
+Public Function Trim() As bluString
+    'TODO
+    
+    'Allow method chaining
+    Set Trim = Me
+End Function
+
+'TrimLeft : Strip whitespace characters from the beginning _
+ ======================================================================================
+Public Function TrimLeft() As bluString
+    'TODO
+    
+    'Allow method chaining
+    Set TrimLeft = Me
+End Function
+
+'TrimRight : Strip whitespace characters from the end _
+ ======================================================================================
+Public Function TrimRight() As bluString
+    'TODO
+    
+    'Allow method chaining
+    Set TrimRight = Me
+End Function
 
 'UCase : Convert our string to UPPERCASE _
  ======================================================================================
 'TODO: We'll need a hefty look up table of UCS-2 case conversion
-Public Sub UCase()
-    '
-End Sub
+Public Function UCase()
+    'TODO
+    
+    'Allow method chaining
+    Set TrimRight = Me
+End Function
 
 'WriteFile : Export our string to a file _
  ======================================================================================
-Public Sub WriteFile( _
+Public Function WriteFile( _
     ByRef FilePath As String _
-)
-    '
-End Sub
+) As bluString
+    'TODO
+    
+    'Allow method chaining
+    Set WriteFile = Me
+End Function

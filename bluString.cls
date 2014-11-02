@@ -118,6 +118,10 @@ Private Declare Function api_GetVersionEx Lib "kernel32" Alias "GetVersionExA" (
 
 'Locale Mapping (for comparison and case conversion): _
  --------------------------------------------------------------------------------------
+'This page helped with working out correct methods of using Unicode API calls _
+ <www.xtremevbtalk.com/showthread.php?t=68956>
+'This page helped with translating the MSDN documentation into VB6; _
+ <www.ex-designz.net/apidetail.asp?api_id=383>
 
 'Get the Locale Identifier (LCID) of this app _
  <msdn.microsoft.com/en-us/library/windows/desktop/dd318127(v=vs.85).aspx>
@@ -128,9 +132,6 @@ Private Declare Function api_GetThreadLocale Lib "kernel32" Alias "GetThreadLoca
  <msdn.microsoft.com/en-us/library/windows/desktop/dd318700(v=vs.85).aspx>
 'Private Declare Function api_LCMapString Lib "kernel32" Alias "LCMapStringW" ( _
 ') As Long
-
-'This page helped with translating the MSDN documentation into VB6; _
- <www.ex-designz.net/apidetail.asp?api_id=383>
 
 'Comparison API return values; _
  You can subtract 2 from these to get C-style values
@@ -145,9 +146,9 @@ End Enum
 Private Declare Function api_CompareString Lib "kernel32.dll" Alias "CompareStringW" ( _
     ByVal Locale As Long, _
     ByVal CompareFlags As Long, _
-    ByVal String1 As String, _
+    ByVal String1 As Long, _
     ByVal String1Chars As Long, _
-    ByVal String2 As String, _
+    ByVal String2 As Long, _
     ByVal String2Chars As Long _
 ) As CSTR_
 
@@ -180,7 +181,7 @@ Private Sub Class_Initialize()
     'Get the pointer to the undimmed array that will act as zombie host to _
      any Strings that we want to use as arrays
     Let CastStrPtr = msvbvm60_VarPtr(CastStrArr())
-    'Swap the String headers over
+    'Backup the pointer for the dummy header
     Call api_PutMem4(CastStrPtr, VarPtr(CastStrSA1D))
     
     'NOTE: The buffer is not initialised to begin with _
@@ -264,7 +265,7 @@ Public Property Let Char( _
     'If a character index is provided outside of the length of the string, error. _
      (note that, compared to the getter, you may not write to the null terminator)
     If Index >= My_Length Then Err.Raise (9): Exit Property
-    'VB6 can only do signed Integers, so Unicode pointer 32'768+ will error unless _
+    'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
      we convert them to their signed equivilent to stuff them into two bytes
     If Char >= 32768 Then
         Let Data(Index) = (Char And &HFFFF&) - 65536
@@ -320,13 +321,11 @@ Public Function Compare( _
          locales, which is why Vista and above use new APIs
         Dim LCID As Long
         Let LCID = api_GetThreadLocale()
-        'Throw the strings at the API to handle string comparison. _
-         I haven't worked out yet to do this without having to make a copy of our _
-         string with `Me.Text`
+        'Throw the strings at the API to handle string comparison
         Let Compare = (api_CompareString( _
             LCID, Flags, _
-            Me.Text, -1, _
-            Comparison, -1 _
+            StrPtr(Comparison), -1, _
+            VarPtr(Data(0)), -1 _
         ) = CSTR_EQUAL)
 '    End If
 End Function

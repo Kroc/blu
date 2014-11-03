@@ -458,16 +458,22 @@ Public Function Insert() As bluString
     
 End Function
 
-'Join : Appends a bluString to the end of this one _
+'Join : Appends another bluString to the end of this one _
  ======================================================================================
 Public Function Join( _
     ByRef InputString As bluString _
 ) As bluString
     'Allow method chaining
     Set Join = Me
-    'TODO
+    'Appending a null-string will do nothing
+    If InputString.Length = 0 Then Exit Function
     
-    
+    'The current length will be the starting position of the appended string
+    Dim Start As Long: Let Start = My_Length
+    'Increase the length accordingly
+    Let Me.Length = My_Length + InputString.Length
+    'Copy the new string in
+    Call api_RtlMoveMemory(Data(Start), ByVal InputString.Pointer, InputString.Length * 2)
 End Function
 
 'LCase : Convert our string to lowercase _
@@ -680,7 +686,7 @@ End Function
 
 'UCase : Convert our string to UPPERCASE _
  ======================================================================================
-Public Function UCase()
+Public Function UCase() As bluString
     'Allow method chaining
     Set UCase = Me
     'Nullstring won't change!

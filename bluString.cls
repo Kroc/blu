@@ -116,7 +116,7 @@ Private Declare Function api_GetVersionEx Lib "kernel32" Alias "GetVersionExA" (
     ByRef VersionInfo As OSVERSIONINFO _
 ) As BOOL
 
-'Locale Mapping (for comparison and case conversion): _
+'Locale Mapping (for case conversion and string comparison): _
  --------------------------------------------------------------------------------------
 'This page helped with working out correct methods of using Unicode API calls _
  <www.xtremevbtalk.com/showthread.php?t=68956>
@@ -129,10 +129,47 @@ Private Declare Function api_GetVersionEx Lib "kernel32" Alias "GetVersionExA" (
 Private Declare Function api_GetThreadLocale Lib "kernel32" Alias "GetThreadLocale" ( _
 ) As Long
 
-'Unicode & Locale-aware case conversion (amongst other things) _
+'Unicode & Locale-aware case conversion (Windows XP) _
  <msdn.microsoft.com/en-us/library/windows/desktop/dd318700(v=vs.85).aspx>
-'Private Declare Function api_LCMapString Lib "kernel32" Alias "LCMapStringW" ( _
-') As Long
+Private Declare Function api_LCMapString Lib "kernel32" Alias "LCMapStringW" ( _
+    ByVal LocaleID As Long, _
+    ByVal MapFlags As LCMAP, _
+    ByVal SourceStringPointer As Long, _
+    ByVal SourceStringLength As Long, _
+    ByVal DestinationStringPointer As Long, _
+    ByVal DestinationStringLength As Long _
+) As Long
+
+'Unicode & Locale-aware case conversion (Windows Vista+) _
+ <msdn.microsoft.com/en-us/library/windows/desktop/dd318702(v=vs.85).aspx>
+Private Declare Function api_LCMapStringEx Lib "kernel32" Alias "LCMapStringEx" ( _
+    ByVal LocaleNamePointer As Long, _
+    ByVal MapFlags As LCMAP, _
+    ByVal SourceStringPointer As Long, _
+    ByVal SourceStringLength As Long, _
+    ByVal DestinationStringPointer As Long, _
+    ByVal DestinationStringLength As Long, _
+    ByVal VersionInformationPointer As Long, _
+    ByVal ReservedPointer As Long, _
+    ByVal SortHandle As Long _
+) As Long
+
+Private Enum LCMAP
+    LCMAP_LINGUISTIC_CASING = &H1000000 'Manage accents &c. in lower/upper casing
+    LCMAP_LOWERCASE = &H100&            'Convert to lower case
+    LCMAP_UPPERCASE = &H200&            'Convert to UPPER CASE
+    LCMAP_SORTKEY = &H400&              'Generate a sort key
+    LCMAP_BYTEREV = &H800&              'Reverse the bytes
+    LCMAP_HIRAGANA = &H100000           'Change Japanese Katakana to Hiragana
+    LCMAP_KATAKANA = &H200000           'Change Japanese Hiragana to Katakana
+    LCMAP_HALFWIDTH = &H400000          'Use standard (half-width) characters
+    LCMAP_FULLWIDTH = &H800000          'Use wide-characters (i.e. Latin in Chinese)
+    'Change traditional Chinese to simplified Chinese and vice-versa
+    LCMAP_SIMPLIFIED_CHINESE = &H2000000
+    LCMAP_TRADITIONAL_CHINESE = &H4000000
+End Enum
+
+'--------------------------------------------------------------------------------------
 
 'Unicode & Locale-aware string comparison (Windows XP) _
  <msdn.microsoft.com/en-us/library/windows/desktop/dd317759(v=vs.85).aspx>
@@ -207,14 +244,14 @@ Private My_Length As Long
  ======================================================================================
 Private Sub Class_Initialize()
     'Get the Windows version as Windows Vista and above use alternative APIs for _
-     locale-dependent functions (such as `Compare`)
+     locale-dependent methods (such as `Compare`)
     Dim VersionInfo As OSVERSIONINFO
     Let VersionInfo.SizeOfMe = Len(VersionInfo)
     'NOTE: If the app is in compatibility mode, this will return the compatible _
-     Windows version, not the actual version; but that's fine with me
-    'Windows 8.1 and above also cause this API to always return as Windows 8.0 unless _
-     the app opts-in to correct version info via manifest, but this isn't an issue to _
-     bluString as we are only concerned with Windows Vista+
+     Windows version, not the actual version. Windows 8.1 and above also cause this _
+     API to always return as Windows 8.0 unless the app opts-in to correct version _
+     info via manifest, but this isn't an issue to bluString as we are only concerned _
+     with testing for Windows Vista+
     If api_GetVersionEx(VersionInfo) = API_TRUE Then
         Let WindowsVersion = _
             Val(VersionInfo.MajorVersion & "." & VersionInfo.MinorVersion)
@@ -258,7 +295,8 @@ End Sub
 'ANSI : Provides an ANSI version (1-byte per character) of the String _
  ======================================================================================
 Public Function ANSI() As String
-    'Use this function to get strings for ANSI Windows APIs
+    'Use this function to get strings for ANSI Windows APIs. This will create a _
+     duplicate String as this class always works in Unicode
     'TODO
 End Function
 
@@ -267,17 +305,17 @@ End Function
 Public Function Append( _
     ByRef InputString As String _
 ) As bluString
+    'Allow method chaining
+    Set Append = Me
     'Appending a null-string will do nothing
     If InputString = vbNullString Or LenB(InputString) = 0 Then Exit Function
+    
     'The current length will be the starting position of the appended string
     Dim Start As Long: Let Start = My_Length
     'Increase the length accordingly
     Let Me.Length = My_Length + Len(InputString)
     'Copy the new string in
     Call api_RtlMoveMemory(Data(Start), ByVal InputString, LenB(InputString))
-    
-    'Allow method chaining
-    Set Append = Me
 End Function
 
 'Buffer : Number of characters to reserve in memory for the string _
@@ -286,6 +324,13 @@ Public Property Get Buffer() As Long: Let Buffer = My_Buffer: End Property
 Public Property Let Buffer( _
     ByRef NumberOfChars As Long _
 )
+    'The buffer cannot be set to zero or a negative number. _
+     We won't bother throwing an error as it won't affect behaviour
+    If NumberOfChars <= 0 Then
+        Debug.Print "[bluString] Cannot set Buffer to 0 or negative number"
+        Exit Property
+    End If
+    
     'Store the new desired buffer length (1-based)
     Let My_Buffer = NumberOfChars
     'If the buffer is cut shorter than the current content, we need to adjust it too
@@ -329,6 +374,8 @@ End Property
 'Clear : Wipe the stored string, fill the buffer with nulls _
  ======================================================================================
 Public Function Clear() As bluString
+    'Allow method chaining
+    Set Clear = Me
     'You can't clear a null-string any more than it is!
     If My_Length > 0 Then
         'This does not change the size of the buffer, should it have increased. _
@@ -338,8 +385,6 @@ Public Function Clear() As bluString
         'Mark the string as being null-length
         Let My_Length = 0
     End If
-    'Allow method chaining
-    Set Clear = Me
 End Function
 
 'Clone : Duplicate our string into another bluString instance _
@@ -361,6 +406,15 @@ Public Function Compare( _
              ByRef Comparison As String, _
     Optional ByRef CompareMethod As VBA.VbCompareMethod = vbTextCompare _
 ) As Boolean
+    'Handle null strings: _
+     Two null strings are considered equal, otherwise result is inequal
+    If My_Length = 0 Then
+        Let Compare = (Comparison = vbNullString Or LenB(Comparison) = 0)
+        Exit Function
+    ElseIf Comparison = vbNullString Or LenB(Comparison) = 0 Then
+        Let Compare = (My_Length = 0)
+    End If
+    
     'The APIs used default to binary search, with a flag for ignoring case
     Dim Flags As CompareString_Flags
     If CompareMethod = vbTextCompare Then Let Flags = LINGUISTIC_IGNORECASE
@@ -388,20 +442,20 @@ End Function
 'Format : Format the text according to a pattern _
  ======================================================================================
 Public Function Format() As bluString
+    'Allow method chaining
+    Set Format = Me
     'TODO: we need to decide what form this is going to take. _
      a `printf` impl.? use VB's format? Or go for separate methods like `formatNumber`?
 
-    'Allow method chaining
-    Set Format = Me
 End Function
 
 'Insert : Insert some text in the middle of the existing string _
  ======================================================================================
 Public Function Insert() As bluString
-    'TODO
-    
     'Allow method chaining
     Set Insert = Me
+    'TODO
+    
 End Function
 
 'Join : Appends a bluString to the end of this one _
@@ -409,19 +463,39 @@ End Function
 Public Function Join( _
     ByRef InputString As bluString _
 ) As bluString
-    'TODO
-    
     'Allow method chaining
     Set Join = Me
+    'TODO
+    
+    
 End Function
 
 'LCase : Convert our string to lowercase _
  ======================================================================================
 Public Function LCase() As bluString
-    'TODO
-    
     'Allow method chaining
     Set LCase = Me
+    'Nullstring won't change!
+    If My_Length = 0 Then Exit Function
+    
+    'Check for Windows Vista and above:
+    If WindowsVersion >= 6 Then
+        'NOTE: The use of null on the first parameter causes Windows to use the _
+         user's current locale, so we don't need to manually fetch the locale name
+        Call api_LCMapStringEx( _
+            0&, LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
+            VarPtr(Data(0)), My_Length * 2, _
+            VarPtr(Data(0)), My_Length * 2, _
+            0&, 0&, 0& _
+        )
+    Else
+        'Use the Windows XP compatible API
+        Call api_LCMapString( _
+            api_GetThreadLocale(), LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
+            VarPtr(Data(0)), My_Length * 2, _
+            VarPtr(Data(0)), My_Length * 2 _
+        )
+    End If
 End Function
 
 'Left : Cut the string short to a given number of characters _
@@ -429,13 +503,12 @@ End Function
 Public Function Left( _
     ByRef NumberOfCharacters As Long _
 ) As bluString
+    'Allow method chaining
+    Set Left = Me
     'You can't increase the length with this!
     If NumberOfCharacters > My_Length Then Err.Raise (9): Exit Function
     'Do the reduction
     Let Me.Length = NumberOfCharacters
-    
-    'Allow method chaining
-    Set Left = Me
 End Function
 
 'Length : Length of the actual stored text (1-based), not the buffer _
@@ -468,10 +541,16 @@ End Property
 'Mid : Reduce the string to a sub-string portion _
  ======================================================================================
 Public Function Mid() As bluString
-    'TODO
-    
     'Allow method chaining
     Set Mid = Me
+    'TODO
+End Function
+
+'Normalize : Fix inconsistent use of Unicode encoding _
+ ======================================================================================
+Public Function Normalize() As bluString
+    'Allow method chaining
+    Set Normalize = Me
 End Function
 
 'Pointer : Allow access to the "string" pointer for external copying _
@@ -491,8 +570,11 @@ End Property
 Public Function Prepend( _
     ByRef InputString As String _
 ) As bluString
+    'Allow method chaining
+    Set Prepend = Me
     'Prepending a null-string will do nothing
     If InputString = vbNullString Or LenB(InputString) = 0 Then Exit Function
+    
     'The current length will be the new starting position of our string
     Dim Start As Long: Let Start = My_Length
     'Increase the length accordingly
@@ -501,9 +583,6 @@ Public Function Prepend( _
     Call api_RtlMoveMemory(Data(Start), Data(0), My_Length * 2)
     'Copy the new string in
     Call api_RtlMoveMemory(Data(0), ByVal InputString, LenB(InputString))
-    
-    'Allow method chaining
-    Set Prepend = Me
 End Function
 
 'ReadFile : Import our string from a file _
@@ -511,19 +590,17 @@ End Function
 Public Function ReadFile( _
     ByRef FilePath As String _
 ) As bluString
-    'TODO
-    
     'Allow method chaining
     Set ReadFile = Me
+    'TODO
 End Function
 
 'Remove : Cut some text out of the middle of the existing string _
  ======================================================================================
 Public Function Remove() As bluString
-    'TODO
-    
     'Allow method chaining
     Set Remove = Me
+    'TODO
 End Function
 
 'Replace : Search for a sub-string and replace it with another _
@@ -532,19 +609,17 @@ Public Function Replace( _
     ByRef SearchFor As String, _
     ByRef ReplaceWith As String _
 ) As bluString
-    'TODO
-    
     'Allow method chaining
     Set Replace = Me
+    'TODO
 End Function
 
 'Right : Keep only the given right-most number of characters _
  ======================================================================================
 Public Function Right() As bluString
-    'TODO
-    
     'Allow method chaining
     Set Right = Me
+    'TODO
 End Function
 
 'Text : Get/Let the contents as native VB strings _
@@ -582,37 +657,53 @@ End Property
  ======================================================================================
 'TODO: We may want a look-up table of all whitespace chars in UCS-2
 Public Function Trim() As bluString
-    'TODO
-    
     'Allow method chaining
     Set Trim = Me
+    'TODO
 End Function
 
 'TrimLeft : Strip whitespace characters from the beginning _
  ======================================================================================
 Public Function TrimLeft() As bluString
-    'TODO
-    
     'Allow method chaining
     Set TrimLeft = Me
+    'TODO
 End Function
 
 'TrimRight : Strip whitespace characters from the end _
  ======================================================================================
 Public Function TrimRight() As bluString
-    'TODO
-    
     'Allow method chaining
     Set TrimRight = Me
+    'TODO
 End Function
 
 'UCase : Convert our string to UPPERCASE _
  ======================================================================================
 Public Function UCase()
-    'TODO
-    
     'Allow method chaining
-    Set TrimRight = Me
+    Set UCase = Me
+    'Nullstring won't change!
+    If My_Length = 0 Then Exit Function
+    
+    'Check for Windows Vista and above:
+    If WindowsVersion >= 6 Then
+        'NOTE: The use of null on the first parameter causes Windows to use the _
+         user's current locale, so we don't need to manually fetch the locale name
+        Call api_LCMapStringEx( _
+            0&, LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
+            VarPtr(Data(0)), My_Length * 2, _
+            VarPtr(Data(0)), My_Length * 2, _
+            0&, 0&, 0& _
+        )
+    Else
+        'Use the Windows XP compatible API
+        Call api_LCMapString( _
+            api_GetThreadLocale(), LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
+            VarPtr(Data(0)), My_Length * 2, _
+            VarPtr(Data(0)), My_Length * 2 _
+        )
+    End If
 End Function
 
 'WriteFile : Export our string to a file _
@@ -620,10 +711,9 @@ End Function
 Public Function WriteFile( _
     ByRef FilePath As String _
 ) As bluString
-    'TODO
-    
     'Allow method chaining
     Set WriteFile = Me
+    'TODO
 End Function
 
 '/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////

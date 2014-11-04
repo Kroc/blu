@@ -64,7 +64,7 @@ Private Declare Sub api_PutMem4 Lib "msvbvm60" Alias "PutMem4" ( _
  This is obviously very fast, especially for long strings
 '<vbforums.com/showthread.php?729385>
 
-'This is VB6's internal structure used for VB arrays _
+'This is VB6's internal structure used for arrays _
  <msdn.microsoft.com/en-us/library/ms221482(v=vs.85).aspx>
 Private Type SAFEARRAY1D
     cDims       As Integer              'The count of dimensions
@@ -253,8 +253,11 @@ Private Sub Class_Initialize()
      info via manifest, but this isn't an issue to bluString as we are only concerned _
      with testing for Windows Vista+
     If api_GetVersionEx(VersionInfo) = API_TRUE Then
-        Let WindowsVersion = _
-            Val(VersionInfo.MajorVersion & "." & VersionInfo.MinorVersion)
+        '`Val`, rather than `CSng` is used here due to locale differences; _
+         `CSng("6.1")` will fail in locales that use comma as decimal separator
+        Let WindowsVersion = Val( _
+            VersionInfo.MajorVersion & "." & VersionInfo.MinorVersion _
+        )
     End If
     
     'Prepare our dummy VB6 String header that will be used as _
@@ -308,14 +311,14 @@ Public Function Append( _
     'Allow method chaining
     Set Append = Me
     'Appending a null-string will do nothing
-    If InputString = vbNullString Or LenB(InputString) = 0 Then Exit Function
+    If LenB(InputString) = 0 Then Exit Function
     
     'The current length will be the starting position of the appended string
     Dim Start As Long: Let Start = My_Length
     'Increase the length accordingly
     Let Me.Length = My_Length + Len(InputString)
     'Copy the new string in
-    Call api_RtlMoveMemory(Data(Start), ByVal InputString, LenB(InputString))
+    Call api_RtlMoveMemory(Data(Start), ByVal StrPtr(InputString), LenB(InputString))
 End Function
 
 'Buffer : Number of characters to reserve in memory for the string _
@@ -350,7 +353,9 @@ Public Property Get Char( _
     'NOTE: Though `My_Length` is 1-based, but `Index` is 0-based, we allow the user _
            to access the spare element at the end as it will be the null terminator, _
            which the end-user may wish to check for (blind-looping, for example)
-           
+        
+    'TODO: Negative index?
+    
     'If a character index is provided outside of the length of the string, error
     If Index > My_Length Then Err.Raise (9): Exit Property
     'Return the character value in question _
@@ -360,6 +365,9 @@ End Property
 Public Property Let Char( _
     ByRef Index As Long, ByRef Char As Long _
 )
+    'TODO: Char out of range (0< x >65535)
+    'TODO: Negative index?
+    
     'If a character index is provided outside of the length of the string, error. _
      (note that, compared to the getter, you may not write to the null terminator)
     If Index >= My_Length Then Err.Raise (9): Exit Property
@@ -408,9 +416,9 @@ Public Function Equals( _
     'Handle null strings: _
      Two null strings are considered equal, otherwise result is inequal
     If My_Length = 0 Then
-        Let Equals = (Comparison = vbNullString Or LenB(Comparison) = 0)
+        Let Equals = (LenB(Comparison) = 0)
         Exit Function
-    ElseIf Comparison = vbNullString Or LenB(Comparison) = 0 Then
+    ElseIf LenB(Comparison) = 0 Then
         Let Equals = (My_Length = 0)
         Exit Function
     End If
@@ -453,11 +461,38 @@ End Function
  ======================================================================================
 Public Function Insert( _
     ByRef InsertString As String, _
-    ByRef Position As Long _
+    ByVal InsertPosition As Long _
 ) As bluString
     'Allow method chaining
     Set Insert = Me
     'Inserting a null-string won't do anything
+    If LenB(InsertString) = 0 Then Exit Function
+    
+    'Cannot insert beyond the last character _
+     (note that `Position` is 0-based and `My_Length` is 1-based)
+    If InsertPosition >= My_Length Then Err.Raise (9): Exit Function
+    
+    'If the insert position is negative, do the insert 'x' number of characters _
+     before the end of our string. That is -1 will be the second to last character
+    If InsertPosition < 0 Then
+        'The negative position cannot be more than the length of our string
+        If Abs(InsertPosition) > My_Length Then Err.Raise (9): Exit Function
+        'Calculate the new position from the end of our string
+        Let InsertPosition = My_Length + InsertPosition
+    End If
+    
+    'Increase the length of our string to fit the inserted string _
+     (the buffer will be increased automatically if necessary)
+    Let Me.Length = My_Length + Len(InsertString)
+    'Shift the upper portion of our string up to make room for the inserted string
+    Call api_RtlMoveMemory( _
+        Data(InsertPosition + Len(InsertString)), Data(InsertPosition), _
+        (My_Length - InsertPosition) * 2 _
+    )
+    'Insert the new string
+    Call api_RtlMoveMemory( _
+        Data(InsertPosition), ByVal StrPtr(InsertString), LenB(InsertString) _
+    )
 End Function
 
 'Join : Appends another bluString to the end of this one _
@@ -475,7 +510,9 @@ Public Function Join( _
     'Increase the length accordingly
     Let Me.Length = My_Length + InputString.Length
     'Copy the new string in
-    Call api_RtlMoveMemory(Data(Start), ByVal InputString.Pointer, InputString.Length * 2)
+    Call api_RtlMoveMemory( _
+        Data(Start), ByVal InputString.Pointer, InputString.Length * 2 _
+    )
 End Function
 
 'LCase : Convert our string to lowercase _
@@ -513,6 +550,9 @@ Public Function Left( _
 ) As bluString
     'Allow method chaining
     Set Left = Me
+    
+    'TODO: Negative number?
+    
     'You can't increase the length with this!
     If NumberOfCharacters > My_Length Then Err.Raise (9): Exit Function
     'Do the reduction
@@ -524,7 +564,9 @@ End Function
 Public Property Get Length() As Long: Let Length = My_Length: End Property
 Public Property Let Length( _
     ByRef NewLength As Long _
-)   'Store the new desired content length (1-based)
+)   'TODO: Negative number, greater than 1 GB
+
+    'Store the new desired content length (1-based)
     Let My_Length = NewLength
     'If the buffer has not been initialised, start with the default length
     If My_Buffer = 0 Then Let My_Buffer = DEFAULT_BUFFER
@@ -534,6 +576,8 @@ TestBuffer:
     If My_Length > My_Buffer Then
         'Double the length of the buffer
         Let My_Buffer = My_Buffer * 2
+        'TODO: Limit to 1 GB
+        
         'Re-check if this is large enough
         GoTo TestBuffer
     End If
@@ -579,16 +623,16 @@ Public Function Prepend( _
     'Allow method chaining
     Set Prepend = Me
     'Prepending a null-string will do nothing
-    If InputString = vbNullString Or LenB(InputString) = 0 Then Exit Function
+    If LenB(InputString) = 0 Then Exit Function
     
-    'The current length will be the new starting position of our string
-    Dim Start As Long: Let Start = My_Length
+    'The length of the new String will be the new starting position of our string
+    Dim Start As Long: Let Start = Len(InputString)
     'Increase the length accordingly
-    Let Me.Length = My_Length + Len(InputString)
+    Let Me.Length = My_Length + Start
     'Shift our string up
     Call api_RtlMoveMemory(Data(Start), Data(0), My_Length * 2)
     'Copy the new string in
-    Call api_RtlMoveMemory(Data(0), ByVal InputString, LenB(InputString))
+    Call api_RtlMoveMemory(Data(0), ByVal StrPtr(InputString), LenB(InputString))
 End Function
 
 'ReadFile : Import our string from a file _
@@ -649,7 +693,7 @@ End Property
 Public Property Let Text( _
     ByRef NewString As String _
 )   'If a null-string is provided then set ours to a null string
-    If NewString = vbNullString Or LenB(NewString) = 0 Then
+    If LenB(NewString) = 0 Then
         Call Me.Clear
     Else
         'Set the new length of our String. The buffer will be increased appropriately

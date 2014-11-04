@@ -1153,9 +1153,12 @@ Public Property Get WindowsVersion() As Single
      Windows version, not the actual version; but that's fine with me
     Dim VersionInfo As OSVERSIONINFO
     Let VersionInfo.SizeOfMe = Len(VersionInfo)
+    '`Val`, rather than `CSng` is used here due to locale differences; _
+     `CSng("6.1")` will fail in locales that use comma as decimal separator
     If kernel32_GetVersionEx(VersionInfo) = API_TRUE Then
-        Let WindowsVersion = _
-            CSng(VersionInfo.MajorVersion & "." & VersionInfo.MinorVersion)
+        Let WindowsVersion = Val( _
+	    VersionInfo.MajorVersion & "." & VersionInfo.MinorVersion _
+        )
     End If
 End Property
 

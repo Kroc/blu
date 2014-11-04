@@ -353,8 +353,9 @@ Public Property Get Char( _
            
     'If a character index is provided outside of the length of the string, error
     If Index > My_Length Then Err.Raise (9): Exit Property
-    'Return the character value in question. The user can use `And &HFF` to get ASCII
-    Let Char = Data(Index)
+    'Return the character value in question _
+     The user can use `And &HFF&` to get ASCII
+    Let Char = (Data(Index) And &HFFFF&)
 End Property
 Public Property Let Char( _
     ByRef Index As Long, ByRef Char As Long _
@@ -364,11 +365,9 @@ Public Property Let Char( _
     If Index >= My_Length Then Err.Raise (9): Exit Property
     'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
      we convert them to their signed equivilent to stuff them into two bytes
-    If Char >= 32768 Then
-        Let Data(Index) = (Char And &HFFFF&) - 65536
-    Else
-        Let Data(Index) = (Char And &HFFFF&)
-    End If
+    If Char >= 32768 _
+        Then Let Data(Index) = (Char And &HFFFF&) - 65536 _
+        Else Let Data(Index) = (Char And &HFFFF&)
 End Property
 
 'Clear : Wipe the stored string, fill the buffer with nulls _
@@ -400,19 +399,20 @@ Public Function Clone() As bluString
     End If
 End Function
 
-'Compare : A fast method to check if one string equals another _
+'Equals : A fast method to check if one string equals another _
  ======================================================================================
-Public Function Compare( _
+Public Function Equals( _
              ByRef Comparison As String, _
     Optional ByRef CompareMethod As VBA.VbCompareMethod = vbTextCompare _
 ) As Boolean
     'Handle null strings: _
      Two null strings are considered equal, otherwise result is inequal
     If My_Length = 0 Then
-        Let Compare = (Comparison = vbNullString Or LenB(Comparison) = 0)
+        Let Equals = (Comparison = vbNullString Or LenB(Comparison) = 0)
         Exit Function
     ElseIf Comparison = vbNullString Or LenB(Comparison) = 0 Then
-        Let Compare = (My_Length = 0)
+        Let Equals = (My_Length = 0)
+        Exit Function
     End If
     
     'The APIs used default to binary search, with a flag for ignoring case
@@ -422,8 +422,8 @@ Public Function Compare( _
     'Check for Windows Vista and above:
     If WindowsVersion >= 6 Then
         'NOTE: The use of null on the first parameter causes Windows to use the _
-         user's current locale, so we don't need to manually fetch the locale name
-        Let Compare = (api_CompareStringEx( _
+         user 's current locale, so we don't need to manually fetch the locale name
+        Let Equals = (api_CompareStringEx( _
             0&, Flags, _
             StrPtr(Comparison), -1, _
             VarPtr(Data(0)), -1, _
@@ -431,7 +431,7 @@ Public Function Compare( _
         ) = CSTR_EQUAL)
     Else
         'Fall back to the XP-compatible API
-        Let Compare = (api_CompareString( _
+        Let Equals = (api_CompareString( _
             api_GetThreadLocale(), Flags, _
             StrPtr(Comparison), -1, _
             VarPtr(Data(0)), -1 _
@@ -451,11 +451,13 @@ End Function
 
 'Insert : Insert some text in the middle of the existing string _
  ======================================================================================
-Public Function Insert() As bluString
+Public Function Insert( _
+    ByRef InsertString As String, _
+    ByRef Position As Long _
+) As bluString
     'Allow method chaining
     Set Insert = Me
-    'TODO
-    
+    'Inserting a null-string won't do anything
 End Function
 
 'Join : Appends another bluString to the end of this one _
@@ -563,11 +565,9 @@ End Function
  ======================================================================================
 Public Property Get Pointer() As Long
     'If a null string, return a null-string pointer
-    If My_Length = 0 Then
-        Let Pointer = VarPtr(vbNullString)
-    Else
-        Let Pointer = VarPtr(Data(0))
-    End If
+    If My_Length = 0 _
+        Then Let Pointer = VarPtr(vbNullString) _
+        Else Let Pointer = VarPtr(Data(0))
 End Property
 
 'Prepend : Add our string to the end of the one provided _

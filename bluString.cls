@@ -418,6 +418,27 @@ Public Property Let Char( _
         Else Let Data(Index) = (Char And &HFFFF&)
 End Property
 
+'CharProperties : Returns the Unicode properties for a character in the string _
+ ======================================================================================
+Public Function CharProperties( _
+    ByRef Position As Long _
+) As Long
+    'TODO
+    'http://msdn.microsoft.com/en-us/library/windows/desktop/dd318119(v=vs.85).aspx
+End Function
+
+'CharRemove : Removes a single Unicode character code _
+ ======================================================================================
+Public Function CharRemove() As Long
+    '
+End Function
+
+'CharInsert : Inserts a single Unicode character code _
+ ======================================================================================
+Public Function CharInsert() As bluString
+    '
+End Function
+
 'Clear : Wipe the stored string, fill the buffer with nulls _
  ======================================================================================
 Public Function Clear() As bluString
@@ -426,8 +447,8 @@ Public Function Clear() As bluString
     'You can't clear a null-string any more than it is!
     If My_Length > 0 Then
         'This does not change the size of the buffer, should it have increased. _
-         If you intend to reuse a large string for a small string, _
-         create a new bluString instance instead
+         If you intend to reuse a large string for a small string, create a new _
+         bluString instance instead or call the `ReduceBuffer` method
         Call api_RtlZeroMemory(Data(0), My_Length * 2)
         'Mark the string as being null-length
         Let My_Length = 0
@@ -593,6 +614,10 @@ Public Function Left( _
     
     'You can't increase the length with this!
     If NumberOfCharacters > My_Length Then Err.Raise (9): Exit Function
+    'Trimming to the same length does nothing!
+    If NumberOfCharacters = My_Length Then Exit Function
+    'Shortcut if trimming to zero
+    If NumberOfCharacters = 0 Then Call Me.Clear: Exit Function
     
     'If the position is negative, work out 'x' number of characters before the end of _
      our string. That is, -1 will be the second to last character
@@ -706,6 +731,18 @@ Public Function ReadFile( _
     'TODO
 End Function
 
+'ReduceBuffer : Free some memory by reducing the buffer to the string length _
+ ======================================================================================
+'Of course you could just use `bluString.Buffer = bluString.Length`, but this is _
+ intended to be more obvious and safer for potential future changes / expansion.
+'It's strongly advised NOT to expand the string after you've reduced the buffer
+Public Function ReduceBuffer() As bluString
+    'Allow method chaining
+    Set ReduceBuffer = Me
+    'Reduce the buffer down to the size of the string
+    Let Me.Length = My_Buffer
+End Function
+
 'Remove : Cut some text out of the middle of the existing string _
  ======================================================================================
 Public Function Remove() As bluString
@@ -727,10 +764,31 @@ End Function
 
 'Right : Keep only the given right-most number of characters _
  ======================================================================================
-Public Function Right() As bluString
+Public Function Right( _
+    ByRef NumberOfCharacters As Long _
+) As bluString
     'Allow method chaining
     Set Right = Me
-    'TODO
+    
+    'Cannot trim longer than the string!
+    If NumberOfCharacters > My_Length Then Err.Raise (9): Exit Function
+    'Keeping all characters does nothing!
+    If NumberOfCharacters = My_Length Then Exit Function
+    'Removing all characters creates a null-string!
+    If NumberOfCharacters = 0 Then Call Me.Clear: Exit Function
+    'Negative numbers are not supported, just use `Left` to keep x number of chars
+    If NumberOfCharacters < 0 Then Err.Raise (9): Exit Function
+    
+    'Calculate the leftmost position that corresponds to 'x' rightmost characters
+    Dim Start As Long
+    Let Start = My_Length - NumberOfCharacters
+    
+    'Shift the rightmost portion of the string down the beginning
+    Call api_RtlMoveMemory(Data(0), Data(Start), NumberOfCharacters)
+    'Cut the string short. The buffer will be left at its old length, _
+     if you know the string won't expand any more you can free the memory up _
+     by calling the `ReduceBuffer` method
+    Let Me.Length = NumberOfCharacters
 End Function
 
 'Text : Get/Let the contents as native VB strings _

@@ -42,22 +42,22 @@ Option Explicit
 'Copy raw memory from one place to another _
  <msdn.microsoft.com/en-us/library/windows/desktop/aa366535%28v=vs.85%29.aspx>
 Private Declare Sub api_RtlMoveMemory Lib "kernel32" Alias "RtlMoveMemory" ( _
-    ByRef DestinationPointer As Any, _
-    ByRef SourcePointer As Any, _
+    ByVal DestinationPointer As Long, _
+    ByVal SourcePointer As Long, _
     ByVal Length As Long _
 )
 
 'Fill memory with zeroes _
  <msdn.microsoft.com/en-us/library/windows/desktop/aa366920%28v=vs.85%29.aspx>
 Private Declare Sub api_RtlZeroMemory Lib "kernel32" Alias "RtlZeroMemory" ( _
-    ByRef DestinationPointer As Any, _
+    ByVal DestinationPointer As Long, _
     ByVal Length As Long _
 )
 
 'Undocumented VB6 API to write 4-bytes (Long) of memory
 Private Declare Sub api_PutMem4 Lib "msvbvm60" Alias "PutMem4" ( _
-    ByVal Addr As Long, _
-    ByVal NewVal As Long _
+    ByVal DestinationPointer As Long, _
+    ByVal Value As Long _
 )
 
 'Cast String to Array: _
@@ -352,7 +352,9 @@ Public Function Append( _
     'Increase the length accordingly
     Let Me.Length = My_Length + Len(InputString)
     'Copy the new string in
-    Call api_RtlMoveMemory(Data(Start), ByVal StrPtr(InputString), LenB(InputString))
+    Call api_RtlMoveMemory( _
+        Me.Pointer(Start), StrPtr(InputString), LenB(InputString) _
+    )
 End Function
 
 'Buffer : Number of characters to reserve in memory for the string _
@@ -449,7 +451,7 @@ Public Function Clear() As bluString
         'This does not change the size of the buffer, should it have increased. _
          If you intend to reuse a large string for a small string, create a new _
          bluString instance instead or call the `ReduceBuffer` method
-        Call api_RtlZeroMemory(Data(0), My_Length * 2)
+        Call api_RtlZeroMemory(Me.Pointer, My_Length * 2)
         'Mark the string as being null-length
         Let My_Length = 0
     End If
@@ -464,7 +466,7 @@ Public Function Clone() As bluString
     Let Clone.Length = My_Length
     'Copy the text across (if there is any)
     If My_Length > 0 Then
-        Call api_RtlMoveMemory(ByVal Clone.Pointer, Data(0), My_Length * 2)
+        Call api_RtlMoveMemory(Clone.Pointer, Me.Pointer, My_Length * 2)
     End If
 End Function
 
@@ -495,7 +497,7 @@ Public Function Equals( _
         Let Equals = (api_CompareStringEx( _
             0&, Flags, _
             StrPtr(Comparison), -1, _
-            VarPtr(Data(0)), -1, _
+            Me.Pointer, -1, _
             0&, 0&, 0& _
         ) = CSTR_EQUAL)
     Else
@@ -503,7 +505,7 @@ Public Function Equals( _
         Let Equals = (api_CompareString( _
             api_GetThreadLocale(), Flags, _
             StrPtr(Comparison), -1, _
-            VarPtr(Data(0)), -1 _
+            Me.Pointer, -1 _
         ) = CSTR_EQUAL)
     End If
 End Function
@@ -547,12 +549,12 @@ Public Function Insert( _
     Let Me.Length = My_Length + Len(InsertString)
     'Shift the upper portion of our string up to make room for the inserted string
     Call api_RtlMoveMemory( _
-        Data(InsertPosition + Len(InsertString)), Data(InsertPosition), _
+        Me.Pointer(InsertPosition + Len(InsertString)), Me.Pointer(InsertPosition), _
         (My_Length - InsertPosition) * 2 _
     )
     'Insert the new string
     Call api_RtlMoveMemory( _
-        Data(InsertPosition), ByVal StrPtr(InsertString), LenB(InsertString) _
+        Me.Pointer(InsertPosition), StrPtr(InsertString), LenB(InsertString) _
     )
 End Function
 
@@ -572,7 +574,7 @@ Public Function Join( _
     Let Me.Length = My_Length + InputString.Length
     'Copy the new string in
     Call api_RtlMoveMemory( _
-        Data(Start), ByVal InputString.Pointer, InputString.Length * 2 _
+        Me.Pointer(Start), InputString.Pointer, InputString.Length * 2 _
     )
 End Function
 
@@ -590,16 +592,16 @@ Public Function LCase() As bluString
          user's current locale, so we don't need to manually fetch the locale name
         Call api_LCMapStringEx( _
             0&, LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
-            VarPtr(Data(0)), My_Length * 2, _
-            VarPtr(Data(0)), My_Length * 2, _
+            Me.Pointer, My_Length * 2, _
+            Me.Pointer, My_Length * 2, _
             0&, 0&, 0& _
         )
     Else
         'Use the Windows XP compatible API
         Call api_LCMapString( _
             api_GetThreadLocale(), LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
-            VarPtr(Data(0)), My_Length * 2, _
-            VarPtr(Data(0)), My_Length * 2 _
+            Me.Pointer, My_Length * 2, _
+            Me.Pointer, My_Length * 2 _
         )
     End If
 End Function
@@ -693,11 +695,18 @@ End Function
 
 'Pointer : Allow access to the "string" pointer for external copying _
  ======================================================================================
-Public Property Get Pointer() As Long
+Public Property Get Pointer( _
+    Optional ByRef Index As Long = 0 _
+) As Long
+    'Provided character index cannot be longer than the string
+    If Index > My_Length Then Err.Raise (9): Exit Property
+    'Also can't be negative
+    If Index < 0 Then Err.Raise (0): Exit Property
+    
     'If a null string, return a null pointer (for potential API use)
     If My_Length = 0 _
         Then Let Pointer = 0 _
-        Else Let Pointer = VarPtr(Data(0))
+        Else Let Pointer = VarPtr(Data(Index))
 End Property
 
 'Prepend : Add our string to the end of the one provided _
@@ -716,9 +725,9 @@ Public Function Prepend( _
     'Increase the length accordingly
     Let Me.Length = My_Length + Start
     'Shift our string up
-    Call api_RtlMoveMemory(Data(Start), Data(0), My_Length * 2)
+    Call api_RtlMoveMemory(Me.Pointer(Start), Me.Pointer, My_Length * 2)
     'Copy the new string in
-    Call api_RtlMoveMemory(Data(0), ByVal StrPtr(InputString), LenB(InputString))
+    Call api_RtlMoveMemory(Me.Pointer, StrPtr(InputString), LenB(InputString))
 End Function
 
 'ReadFile : Import our string from a file _
@@ -784,7 +793,7 @@ Public Function Right( _
     Let Start = My_Length - NumberOfCharacters
     
     'Shift the rightmost portion of the string down the beginning
-    Call api_RtlMoveMemory(Data(0), Data(Start), NumberOfCharacters)
+    Call api_RtlMoveMemory(Me.Pointer, Me.Pointer(Start), NumberOfCharacters)
     'Cut the string short. The buffer will be left at its old length, _
      if you know the string won't expand any more you can free the memory up _
      by calling the `ReduceBuffer` method
@@ -806,7 +815,7 @@ Public Property Get Text() As String
             Let .cElements = LenB(Text)
         End With
         'Copy our String into the return field
-        Call api_RtlMoveMemory(CastStrArr(0), Data(0), My_Length * 2)
+        Call api_RtlMoveMemory(VarPtr(CastStrArr(0)), Me.Pointer, My_Length * 2)
     End If
 End Property
 Public Property Let Text( _
@@ -818,7 +827,7 @@ Public Property Let Text( _
         'Set the new length of our String. The buffer will be increased appropriately
         Let Me.Length = Len(NewString)
         'Copy the String data over
-        Call api_RtlMoveMemory(Data(0), ByVal StrPtr(NewString), LenB(NewString))
+        Call api_RtlMoveMemory(Me.Pointer, StrPtr(NewString), LenB(NewString))
     End If
 End Property
 
@@ -861,16 +870,16 @@ Public Function UCase() As bluString
          user's current locale, so we don't need to manually fetch the locale name
         Call api_LCMapStringEx( _
             0&, LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
-            VarPtr(Data(0)), My_Length * 2, _
-            VarPtr(Data(0)), My_Length * 2, _
+            Me.Pointer, My_Length * 2, _
+            Me.Pointer, My_Length * 2, _
             0&, 0&, 0& _
         )
     Else
         'Use the Windows XP compatible API
         Call api_LCMapString( _
             api_GetThreadLocale(), LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
-            VarPtr(Data(0)), My_Length * 2, _
-            VarPtr(Data(0)), My_Length * 2 _
+            Me.Pointer, My_Length * 2, _
+            Me.Pointer, My_Length * 2 _
         )
     End If
 End Function

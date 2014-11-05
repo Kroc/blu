@@ -394,30 +394,53 @@ Public Property Get Char( _
            to access the spare element at the end as it will be the null terminator, _
            which the end-user may wish to check for (blind-looping, for example)
            
-    'TODO: Negative index?
-    
     'If a character index is provided outside of the length of the string, error _
      (this also prevents using an index bigger than the maximum buffer size as it's _
       not possible to set `My_Length` above `BUFFER_MAX`)
     If Index > My_Length Then Err.Raise (9): Exit Property
-    'Return the character value in question _
-     The user can use `And &HFF&` to get ASCII
-    Let Char = (Data(Index) And &HFFFF&)
+           
+    'If the position is negative, get the character code 'x' number of characters _
+     before the end of our string. That is, -1 will be the second to last character
+    If Index < 0 Then
+        'The negative position cannot be more than the length of our string
+        If Abs(Index) > My_Length Then Err.Raise (9): Exit Function
+        'Calculate the new position from the end of our string
+        Let Char = (Data(My_Length + Index) And &HFFFF&)
+    Else
+        'Return the character value in question _
+         The user can use `And &HFF&` to get ASCII
+        Let Char = (Data(Index) And &HFFFF&)
+    End If
 End Property
 Public Property Let Char( _
     ByRef Index As Long, ByRef Char As Long _
 )
-    'TODO: Char out of range (0< x >65535)
-    'TODO: Negative index?
+    'UCS-2 Unicode is limited to 65536 code points
+    If Index > 65535 Then Err.Raise (9): Exit Property
+    'TODO: Could allow negative char codes as representative of signed Integer values
+    If Index < 0 Then Err.Raise (9): Exit Property
     
     'If a character index is provided outside of the length of the string, error. _
      (note that, compared to the getter, you may not write to the null terminator)
     If Index >= My_Length Then Err.Raise (9): Exit Property
-    'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
-     we convert them to their signed equivilent to stuff them into two bytes
-    If Char >= 32768 _
-        Then Let Data(Index) = (Char And &HFFFF&) - 65536 _
-        Else Let Data(Index) = (Char And &HFFFF&)
+    
+    'If the position is negative, let the character code 'x' number of characters _
+     before the end of our string. That is, -1 will be the second to last character
+    If Index < 0 Then
+        'The negative position cannot be more than the length of our string
+        If Abs(Index) > My_Length Then Err.Raise (9): Exit Function
+        'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
+         we convert them to their signed equivilent to stuff them into two bytes
+        If Char >= 32768 _
+            Then Let Data(My_Length + Index) = (Char And &HFFFF&) - 65536 _
+            Else Let Data(My_Length + Index) = (Char And &HFFFF&)
+    Else
+        'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
+         we convert them to their signed equivilent to stuff them into two bytes
+        If Char >= 32768 _
+            Then Let Data(Index) = (Char And &HFFFF&) - 65536 _
+            Else Let Data(Index) = (Char And &HFFFF&)
+    End If
 End Property
 
 'CharProperties : Returns the Unicode properties for a character in the string _

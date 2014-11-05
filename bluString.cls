@@ -264,7 +264,7 @@ Public Enum BUFFER_SIZE
     
     'The maximum number of characters allowed in a string is 1,073,741,824. This is
      'because Unicode (UCS-2) uses 2-bytes per character and since VB6 uses signed
-     'Longs, it goes negative above 2 million, limiting us to 1 million byte pairs.
+     'Longs, it goes negative above 2 billion, limiting us to 1 billion byte pairs.
     BUFFER_1G = 2 ^ 30:     BUFFER_MAX = BUFFER_1G
     
     'Without the buffer pre-set, it will default to 128 chars which is enough room

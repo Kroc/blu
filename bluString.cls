@@ -33,6 +33,9 @@ Option Explicit
 
 ' * Method-chaining allowing for some nice OOP behaviour; _
     `bluString.Clone.Left(12).Append("...")`
+    
+' * Ridiculously fast! _
+    Half a million string comparisons per second? No problem
 
 '/// API //////////////////////////////////////////////////////////////////////////////
 
@@ -235,8 +238,39 @@ Private WindowsVersion As Single
 Private Data() As Integer
 'The buffer and content-length will be a 1-based count of characters (not bytes); _
  UCS-2 uses two bytes per character
-Private My_Buffer As Long: Private Const DEFAULT_BUFFER As Long = 128
+Private My_Buffer As Long
 Private My_Length As Long
+
+'You can set the buffer to any size (and if you know how long your string is going to _
+ be beforehand, you should), but if you don't leave room for growth then the memory _
+ will be reallocated once the string overflows the buffer and this is very slow. _
+ The buffer automatically doubles in size each time it fills, under the assumption _
+ that big data has bigger changes. Whilst not necessary, these constants are designed _
+ to make the user think about just how much memory they're using and what the _
+ likelihood is that they will overflow
+Public Enum BUFFER_SIZE
+    'These are measured in power-of-2 characters, not bytes
+     '(so "1K" = 1024 characters = 2048 Bytes)
+    BUFFER_1 = 2 ^ 0:       BUFFER_1K = 2 ^ 10:     BUFFER_1M = 2 ^ 20
+    BUFFER_2 = 2 ^ 1:       BUFFER_2K = 2 ^ 11:     BUFFER_2M = 2 ^ 21
+    BUFFER_4 = 2 ^ 2:       BUFFER_4K = 2 ^ 12:     BUFFER_4M = 2 ^ 22
+    BUFFER_8 = 2 ^ 3:       BUFFER_8K = 2 ^ 13:     BUFFER_8M = 2 ^ 23
+    BUFFER_16 = 2 ^ 4:      BUFFER_16K = 2 ^ 14:    BUFFER_16M = 2 ^ 24
+    BUFFER_32 = 2 ^ 5:      BUFFER_32K = 2 ^ 15:    BUFFER_32M = 2 ^ 25
+    BUFFER_64 = 2 ^ 6:      BUFFER_64K = 2 ^ 16:    BUFFER_64M = 2 ^ 26
+    BUFFER_128 = 2 ^ 7:     BUFFER_128K = 2 ^ 17:   BUFFER_128M = 2 ^ 27
+    BUFFER_256 = 2 ^ 8:     BUFFER_256K = 2 ^ 18:   BUFFER_256M = 2 ^ 28
+    BUFFER_512 = 2 ^ 9:     BUFFER_512K = 2 ^ 19:   BUFFER_512M = 2 ^ 29
+    
+    'The maximum number of characters allowed in a string is 1,073,741,824. This is
+     'because Unicode (UCS-2) uses 2-bytes per character and since VB6 uses signed
+     'Longs, it goes negative above 2 million, limiting us to 1 million byte pairs.
+    BUFFER_1G = 2 ^ 30:     BUFFER_MAX = BUFFER_1G
+    
+    'Without the buffer pre-set, it will default to 128 chars which is enough room
+     'for growth for most string handling and not too memory intensive (256 bytes)
+    DEFAULT_BUFFER = BUFFER_128
+End Enum
 
 '/// EVENTS ///////////////////////////////////////////////////////////////////////////
 
@@ -323,15 +357,19 @@ End Function
 
 'Buffer : Number of characters to reserve in memory for the string _
  ======================================================================================
-Public Property Get Buffer() As Long: Let Buffer = My_Buffer: End Property
+Public Property Get Buffer() As BUFFER_SIZE: Let Buffer = My_Buffer: End Property
 Public Property Let Buffer( _
-    ByRef NumberOfChars As Long _
+    ByRef NumberOfChars As BUFFER_SIZE _
 )
     'The buffer cannot be set to zero or a negative number. _
      We won't bother throwing an error as it won't affect behaviour
     If NumberOfChars <= 0 Then
-        Debug.Print "[bluString] Cannot set Buffer to 0 or negative number"
+        Debug.Print "[bluString] WARNING: Cannot set Buffer to 0 or negative number"
         Exit Property
+    'Also you cannot go over the maximum buffer size
+    ElseIf NumberOfChars > BUFFER_MAX Then
+        'Raise VB's "Overflow" error
+        Err.Raise (6): Exit Property
     End If
     
     'Store the new desired buffer length (1-based)
@@ -353,10 +391,12 @@ Public Property Get Char( _
     'NOTE: Though `My_Length` is 1-based, but `Index` is 0-based, we allow the user _
            to access the spare element at the end as it will be the null terminator, _
            which the end-user may wish to check for (blind-looping, for example)
-        
+           
     'TODO: Negative index?
     
-    'If a character index is provided outside of the length of the string, error
+    'If a character index is provided outside of the length of the string, error _
+     (this also prevents using an index bigger than the maximum buffer size as it's _
+      not possible to set `My_Length` above `BUFFER_MAX`)
     If Index > My_Length Then Err.Raise (9): Exit Property
     'Return the character value in question _
      The user can use `And &HFF&` to get ASCII
@@ -473,7 +513,7 @@ Public Function Insert( _
     If InsertPosition >= My_Length Then Err.Raise (9): Exit Function
     
     'If the insert position is negative, do the insert 'x' number of characters _
-     before the end of our string. That is -1 will be the second to last character
+     before the end of our string. That is, -1 will be the second to last character
     If InsertPosition < 0 Then
         'The negative position cannot be more than the length of our string
         If Abs(InsertPosition) > My_Length Then Err.Raise (9): Exit Function
@@ -564,7 +604,12 @@ End Function
 Public Property Get Length() As Long: Let Length = My_Length: End Property
 Public Property Let Length( _
     ByRef NewLength As Long _
-)   'TODO: Negative number, greater than 1 GB
+)
+    'Cannot obviously set the length to a negative number
+    If NewLength < 0 Then Err.Raise (9): Exit Property
+    'Can't set the length greater than the maximum allowed size _
+     (VB Error #6 is "Overflow")
+    If NewLength > BUFFER_MAX Then Err.Raise (6): Exit Property
 
     'Store the new desired content length (1-based)
     Let My_Length = NewLength
@@ -572,12 +617,20 @@ Public Property Let Length( _
     If My_Buffer = 0 Then Let My_Buffer = DEFAULT_BUFFER
     
 TestBuffer:
-    'If this increases the data too large
+    'If this increases the data too large...
     If My_Length > My_Buffer Then
-        'Double the length of the buffer
-        Let My_Buffer = My_Buffer * 2
-        'TODO: Limit to 1 GB
-        
+        'If the buffer is already at maximum then we've hit the absolute limit _
+         (VB Error #14 is "Out of String Space")
+        If My_Buffer = BUFFER_MAX Then Err.Raise (14): Exit Property
+        'In the case of custom buffer sizes, doubling the buffer might go over the _
+         limit, but there may still be enough room for the new length if we just stop _
+         at the buffer limit
+        If (My_Buffer * 2) > BUFFER_MAX Then
+            Let My_Buffer = BUFFER_MAX
+        Else
+            'Double the length of the buffer
+            Let My_Buffer = My_Buffer * 2
+        End If
         'Re-check if this is large enough
         GoTo TestBuffer
     End If

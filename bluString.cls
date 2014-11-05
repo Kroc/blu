@@ -591,12 +591,20 @@ Public Function Left( _
     'Allow method chaining
     Set Left = Me
     
-    'TODO: Negative number?
-    
     'You can't increase the length with this!
     If NumberOfCharacters > My_Length Then Err.Raise (9): Exit Function
-    'Do the reduction
-    Let Me.Length = NumberOfCharacters
+    
+    'If the position is negative, work out 'x' number of characters before the end of _
+     our string. That is, -1 will be the second to last character
+    If NumberOfCharacters < 0 Then
+        'The negative position cannot be more than the length of our string
+        If Abs(NumberOfCharacters) > My_Length Then Err.Raise (9): Exit Function
+        'Calculate the new position from the end of our string
+        Let Me.Length = My_Length + NumberOfCharacters
+    Else
+        'Do the reduction
+        Let Me.Length = NumberOfCharacters
+    End If
 End Function
 
 'Length : Length of the actual stored text (1-based), not the buffer _
@@ -661,9 +669,9 @@ End Function
 'Pointer : Allow access to the "string" pointer for external copying _
  ======================================================================================
 Public Property Get Pointer() As Long
-    'If a null string, return a null-string pointer
+    'If a null string, return a null pointer (for potential API use)
     If My_Length = 0 _
-        Then Let Pointer = VarPtr(vbNullString) _
+        Then Let Pointer = 0 _
         Else Let Pointer = VarPtr(Data(0))
 End Property
 

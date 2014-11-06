@@ -228,6 +228,36 @@ Private Enum CSTR_
     CSTR_GREATER_THAN = 3
 End Enum
 
+'Unicode character properties: _
+ --------------------------------------------------------------------------------------
+'Returns an array of Unicode character properties for a string _
+ <msdn.microsoft.com/en-us/library/windows/desktop/dd318119(v=vs.85).aspx>
+Private Declare Function api_GetStringTypeW Lib "kernel32" Alias "GetStringTypeW" ( _
+    ByVal InfoType As CT, _
+    ByVal SourceStringPointer As Long, _
+    ByVal SourceStringLength As Long, _
+    ByVal CharTypePointer As Long _
+) As BOOL
+
+Private Enum CT
+    CT_CTYPE1 = &H1                     'Character type info (unicode properties)
+    CT_CTYPE2 = &H2                     'Bi-directional layout information
+    CT_CTYPE3 = &H3                     'Text-processing information
+End Enum
+
+Public Enum C1
+    C1_UPPER = 2 ^ 0                    'Uppercase
+    C1_LOWER = 2 ^ 1                    'Lowercase
+    C1_DIGIT = 2 ^ 2                    'Decimal digit
+    C1_SPACE = 2 ^ 3                    'Space characters
+    C1_PUNCT = 2 ^ 4                    'Punctuation
+    C1_CNTRL = 2 ^ 5                    'Control characters
+    C1_BLANK = 2 ^ 6                    'Blank characters
+    C1_XDIGIT = 2 ^ 7                   'Hexadecimal digits
+    C1_ALPHA = 2 ^ 8                    'Any linguistic character
+    C1_DEFINED = 2 ^ 9                  'Defined, but not one of the other C1_* types
+End Enum
+
 '/// CLASS STORAGE ////////////////////////////////////////////////////////////////////
 
 'We'll cache the Windows version here as it's very slow to do this every time we _
@@ -412,6 +442,7 @@ Public Property Get Char( _
         Let Char = (Data(Index) And &HFFFF&)
     End If
 End Property
+'--------------------------------------------------------------------------------------
 Public Property Let Char( _
     ByRef Index As Long, ByRef Char As Long _
 )
@@ -428,7 +459,7 @@ Public Property Let Char( _
      before the end of our string. That is, -1 will be the second to last character
     If Index < 0 Then
         'The negative position cannot be more than the length of our string
-        If Abs(Index) > My_Length Then Err.Raise (9): Exit Function
+        If Abs(Index) > My_Length Then Err.Raise (9): Exit Property
         'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
          we convert them to their signed equivilent to stuff them into two bytes
         If Char >= 32768 _
@@ -447,9 +478,15 @@ End Property
  ======================================================================================
 Public Function CharProperties( _
     ByRef Position As Long _
-) As Long
-    'TODO
-    'http://msdn.microsoft.com/en-us/library/windows/desktop/dd318119(v=vs.85).aspx
+) As C1
+    'Check the position is within bounds
+    If Position < 0 Then Err.Raise (9): Exit Function
+    If Position >= My_Length Then Err.Raise (9): Exit Function
+    'Use the API to fill the return value with the character properties
+    Call api_GetStringTypeW( _
+        CT_CTYPE1, Me.Pointer(Position), 1, _
+        VarPtr(CharProperties) _
+    )
 End Function
 
 'CharRemove : Removes a single Unicode character code _
@@ -841,6 +878,7 @@ Public Property Get Text() As String
         Call api_RtlMoveMemory(VarPtr(CastStrArr(0)), Me.Pointer, My_Length * 2)
     End If
 End Property
+'--------------------------------------------------------------------------------------
 Public Property Let Text( _
     ByRef NewString As String _
 )   'If a null-string is provided then set ours to a null string

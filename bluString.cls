@@ -474,6 +474,12 @@ Public Property Let Char( _
     End If
 End Property
 
+'CharInsert : Inserts a single Unicode character code _
+ ======================================================================================
+Public Function CharInsert() As bluString
+    '
+End Function
+
 'CharProperties : Returns the Unicode properties for a character in the string _
  ======================================================================================
 Public Function CharProperties( _
@@ -489,15 +495,21 @@ Public Function CharProperties( _
     )
 End Function
 
-'CharRemove : Removes a single Unicode character code _
+'CharPull : Removes the last character of the string and returns the character code _
  ======================================================================================
-Public Function CharRemove() As Long
+Public Function CharPull() As Long
     '
 End Function
 
-'CharInsert : Inserts a single Unicode character code _
+'CharPush : Appends a single character code to the end of the string _
  ======================================================================================
-Public Function CharInsert() As bluString
+Public Function CharPush() As bluString
+    '
+End Function
+
+'CharRemove : Removes a single Unicode character code _
+ ======================================================================================
+Public Function CharRemove() As Long
     '
 End Function
 
@@ -517,17 +529,32 @@ Public Function Clear() As bluString
     End If
 End Function
 
-'Clone : Duplicate our string into another bluString instance _
+'Clone : Duplicate our string (or subportion) into another bluString instance _
  ======================================================================================
-Public Function Clone() As bluString
+Public Function Clone( _
+    Optional ByRef FromPosition As Long = 0, _
+    Optional ByRef Length As Long = 0 _
+) As bluString
+    'Starting position cannot be negative
+    If FromPosition < 0 Then Err.Raise (9): Exit Function
+    'Cannot begin after the last character!
+    If FromPosition > My_Length - 1 Then Err.Raise (9): Exit Function
+    'Desired length cannot be negative
+    If Length < 0 Then Err.Raise (9): Exit Function
+    'The optional length parameter defaults to zero, _
+     representative of the full string
+    If Length = 0 Then Length = My_Length - FromPosition
+    'The length cannot be longer than the remainder of the string
+    If My_Length - FromPosition - Length < 0 Then Err.Raise (9): Exit Function
+    
     'Instantiate the return object
     Set Clone = New bluString
     'Set the destination size
-    Let Clone.Length = My_Length
+    Let Clone.Length = Length
     'Copy the text across (if there is any)
-    If My_Length > 0 Then
-        Call api_RtlMoveMemory(Clone.Pointer, Me.Pointer, My_Length * 2)
-    End If
+    If My_Length > 0 Then Call api_RtlMoveMemory( _
+        Clone.Pointer(FromPosition), Me.Pointer, Length * 2 _
+    )
 End Function
 
 'Equals : A fast method to check if one string equals another _

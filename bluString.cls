@@ -383,7 +383,7 @@ Public Function Append( _
     Let Me.Length = My_Length + Len(InputString)
     'Copy the new string in
     Call api_RtlMoveMemory( _
-        Me.Pointer(Start), StrPtr(InputString), LenB(InputString) _
+        UnsafePointer(Start), StrPtr(InputString), LenB(InputString) _
     )
 End Function
 
@@ -493,7 +493,7 @@ Public Function CharInsert( _
     Let Me.Length = My_Length + 1
     'Shift the upper portion of our string up
     Call api_RtlMoveMemory( _
-        Me.Pointer(Index + 1), Me.Pointer(Index), _
+        UnsafePointer(Index + 1), UnsafePointer(Index), _
         (My_Length - Index - 1) * 2 _
     )
     'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
@@ -513,7 +513,7 @@ Public Function CharProperties( _
     If Position >= My_Length Then Err.Raise (9): Exit Function
     'Use the API to fill the return value with the character properties
     Call api_GetStringTypeW( _
-        CT_CTYPE1, Me.Pointer(Position), 1, _
+        CT_CTYPE1, UnsafePointer(Position), 1, _
         VarPtr(CharProperties) _
     )
 End Function
@@ -569,7 +569,7 @@ Public Function CharRemove( _
     Else
         'Shift the remainder of the string down a character
         Call api_RtlMoveMemory( _
-            Me.Pointer(Index), Me.Pointer(Index + 1), _
+            UnsafePointer(Index), UnsafePointer(Index + 1), _
             (My_Length - Index - 1) * 2 _
         )
     End If
@@ -585,7 +585,7 @@ Public Function Clear() As bluString
         'This does not change the size of the buffer, should it have increased. _
          If you intend to reuse a large string for a small string, create a new _
          bluString instance instead or call the `ReduceBuffer` method
-        Call api_RtlZeroMemory(Me.Pointer, My_Length * 2)
+        Call api_RtlZeroMemory(UnsafePointer, My_Length * 2)
         'Mark the string as being null-length
         Let My_Length = 0
     End If
@@ -615,7 +615,7 @@ Public Function Clone( _
     Let Clone.Length = Length
     'Copy the text across (if there is any)
     If My_Length > 0 Then Call api_RtlMoveMemory( _
-        Clone.Pointer(FromPosition), Me.Pointer, Length * 2 _
+        Clone.Pointer(FromPosition), UnsafePointer, Length * 2 _
     )
 End Function
 
@@ -646,7 +646,7 @@ Public Function Equals( _
         Let Equals = (api_CompareStringEx( _
             0&, Flags, _
             StrPtr(Comparison), -1, _
-            Me.Pointer, -1, _
+            UnsafePointer, -1, _
             0&, 0&, 0& _
         ) = CSTR_EQUAL)
     Else
@@ -654,7 +654,7 @@ Public Function Equals( _
         Let Equals = (api_CompareString( _
             api_GetThreadLocale(), Flags, _
             StrPtr(Comparison), -1, _
-            Me.Pointer, -1 _
+            UnsafePointer, -1 _
         ) = CSTR_EQUAL)
     End If
 End Function
@@ -701,12 +701,13 @@ Public Function Insert( _
     Let Me.Length = My_Length + Len(InsertString)
     'Shift the upper portion of our string up to make room for the inserted string
     Call api_RtlMoveMemory( _
-        Me.Pointer(InsertPosition + Len(InsertString)), Me.Pointer(InsertPosition), _
+        UnsafePointer(InsertPosition + Len(InsertString)), _
+        UnsafePointer(InsertPosition), _
         (My_Length - InsertPosition) * 2 _
     )
     'Insert the new string
     Call api_RtlMoveMemory( _
-        Me.Pointer(InsertPosition), StrPtr(InsertString), LenB(InsertString) _
+        UnsafePointer(InsertPosition), StrPtr(InsertString), LenB(InsertString) _
     )
 End Function
 
@@ -726,7 +727,7 @@ Public Function Join( _
     Let Me.Length = My_Length + InputString.Length
     'Copy the new string in
     Call api_RtlMoveMemory( _
-        Me.Pointer(Start), InputString.Pointer, InputString.Length * 2 _
+        UnsafePointer(Start), InputString.Pointer, InputString.Length * 2 _
     )
 End Function
 
@@ -744,16 +745,16 @@ Public Function LCase() As bluString
          user's current locale, so we don't need to manually fetch the locale name
         Call api_LCMapStringEx( _
             0&, LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
-            Me.Pointer, My_Length * 2, _
-            Me.Pointer, My_Length * 2, _
+            UnsafePointer, My_Length * 2, _
+            UnsafePointer, My_Length * 2, _
             0&, 0&, 0& _
         )
     Else
         'Use the Windows XP compatible API
         Call api_LCMapString( _
             api_GetThreadLocale(), LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
-            Me.Pointer, My_Length * 2, _
-            Me.Pointer, My_Length * 2 _
+            UnsafePointer, My_Length * 2, _
+            UnsafePointer, My_Length * 2 _
         )
     End If
 End Function
@@ -877,9 +878,9 @@ Public Function Prepend( _
     'Increase the length accordingly
     Let Me.Length = My_Length + Start
     'Shift our string up
-    Call api_RtlMoveMemory(Me.Pointer(Start), Me.Pointer, My_Length * 2)
+    Call api_RtlMoveMemory(UnsafePointer(Start), UnsafePointer, My_Length * 2)
     'Copy the new string in
-    Call api_RtlMoveMemory(Me.Pointer, StrPtr(InputString), LenB(InputString))
+    Call api_RtlMoveMemory(UnsafePointer, StrPtr(InputString), LenB(InputString))
 End Function
 
 ''ReadFile : Import our string from a file _
@@ -945,7 +946,7 @@ Public Function Right( _
     Let Start = My_Length - NumberOfCharacters
     
     'Shift the rightmost portion of the string down the beginning
-    Call api_RtlMoveMemory(Me.Pointer, Me.Pointer(Start), NumberOfCharacters)
+    Call api_RtlMoveMemory(UnsafePointer, UnsafePointer(Start), NumberOfCharacters)
     'Cut the string short. The buffer will be left at its old length, _
      if you know the string won't expand any more you can free the memory up _
      by calling the `ReduceBuffer` method
@@ -967,7 +968,7 @@ Public Property Get Text() As String
             Let .cElements = LenB(Text)
         End With
         'Copy our String into the return field
-        Call api_RtlMoveMemory(VarPtr(CastStrArr(0)), Me.Pointer, My_Length * 2)
+        Call api_RtlMoveMemory(VarPtr(CastStrArr(0)), UnsafePointer, My_Length * 2)
     End If
 End Property
 '--------------------------------------------------------------------------------------
@@ -980,7 +981,7 @@ Public Property Let Text( _
         'Set the new length of our String. The buffer will be increased appropriately
         Let Me.Length = Len(NewString)
         'Copy the String data over
-        Call api_RtlMoveMemory(Me.Pointer, StrPtr(NewString), LenB(NewString))
+        Call api_RtlMoveMemory(UnsafePointer, StrPtr(NewString), LenB(NewString))
     End If
 End Property
 
@@ -1023,16 +1024,16 @@ Public Function UCase() As bluString
          user's current locale, so we don't need to manually fetch the locale name
         Call api_LCMapStringEx( _
             0&, LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
-            Me.Pointer, My_Length * 2, _
-            Me.Pointer, My_Length * 2, _
+            UnsafePointer, My_Length * 2, _
+            UnsafePointer, My_Length * 2, _
             0&, 0&, 0& _
         )
     Else
         'Use the Windows XP compatible API
         Call api_LCMapString( _
             api_GetThreadLocale(), LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
-            Me.Pointer, My_Length * 2, _
-            Me.Pointer, My_Length * 2 _
+            UnsafePointer, My_Length * 2, _
+            UnsafePointer, My_Length * 2 _
         )
     End If
 End Function
@@ -1049,3 +1050,11 @@ End Function
 
 '/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
 
+'UnsafePointer : Gets a pointer to the string, without validation -- internal use _
+ ======================================================================================
+Private Property Get UnsafePointer( _
+    Optional ByRef Index As Long = 0 _
+) As Long
+    'Return a pointer to the given character index
+    Let UnsafePointer = VarPtr(Data(Index))
+End Property

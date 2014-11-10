@@ -474,18 +474,41 @@ Public Property Let Char( _
     End If
 End Property
 
-''CharInsert : Inserts a single Unicode character code _
-' ======================================================================================
-'Public Function CharInsert() As bluString
-'    '
-'End Function
+'CharInsert : Inserts a single Unicode character code _
+ ======================================================================================
+Public Function CharInsert( _
+    ByRef Index As Long, _
+    ByRef CharacterCode As Long _
+) As bluString
+    'Allow method chaining
+    Set CharInsert = Me
+    'Check the character code is within range
+    If CharacterCode < 0 Then Err.Raise (9): Exit Function
+    If CharacterCode > 65535 Then Err.Raise (9): Exit Function
+    'Check the character index is within range
+    If Index < 0 Then Err.Raise (9): Exit Function
+    If Index >= My_Length Then Err.Raise (9): Exit Function
+    
+    'Increase the string length by 1 to make room
+    Let Me.Length = My_Length + 1
+    'Shift the upper portion of our string up
+    Call api_RtlMoveMemory( _
+        Me.Pointer(Index + 1), Me.Pointer(Index), _
+        (My_Length - Index - 1) * 2 _
+    )
+    'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
+         we convert them to their signed equivilent to stuff them into two bytes
+    If CharacterCode >= 32768 _
+        Then Let Data(Index) = (CharacterCode And &HFFFF&) - 65536 _
+        Else Let Data(Index) = (CharacterCode And &HFFFF&)
+End Function
 
 'CharProperties : Returns the Unicode properties for a character in the string _
  ======================================================================================
 Public Function CharProperties( _
     ByRef Position As Long _
 ) As C1
-    'Check the position is within bounds
+    'Check the character index is within bounds
     If Position < 0 Then Err.Raise (9): Exit Function
     If Position >= My_Length Then Err.Raise (9): Exit Function
     'Use the API to fill the return value with the character properties

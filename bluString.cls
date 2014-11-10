@@ -498,13 +498,34 @@ End Function
 'CharPull : Removes the last character of the string and returns the character code _
  ======================================================================================
 Public Function CharPull() As Long
-    '
+    'If there are no characters, just return null
+    If My_Length = 0 Then Exit Function
+    'Return the character value in question _
+     The user can use `And &HFF&` to get ASCII
+    Let CharPull = (Data(My_Length - 1) And &HFFFF&)
+    'Reduce the size of the string
+    Let Me.Length = My_Length - 1
 End Function
 
 'CharPush : Appends a single character code to the end of the string _
  ======================================================================================
-Public Function CharPush() As bluString
-    '
+Public Function CharPush( _
+    ByVal CharacterCode As Long _
+) As bluString
+    'Allow method chaining
+    Set CharPush = Me
+    'Character code cannot be out of range
+    If CharacterCode < 0 Or CharacterCode > 65535 Then Err.Raise (9): Exit Function
+    
+    'Increase the length of our string by one character _
+     (the buffer will manage any necessary growth)
+    Let Me.Length = My_Length + 1
+    'Set the character code of the last character
+    'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
+         we convert them to their signed equivilent to stuff them into two bytes
+    If CharacterCode >= 32768 _
+        Then Let Data(My_Length - 1) = (CharacterCode And &HFFFF&) - 65536 _
+        Else Let Data(My_Length - 1) = (CharacterCode And &HFFFF&)
 End Function
 
 'CharRemove : Removes a single Unicode character code _

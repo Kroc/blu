@@ -359,13 +359,13 @@ End Sub
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
 
-'ANSI : Provides an ANSI version (1-byte per character) of the String _
- ======================================================================================
-Public Function ANSI() As String
-    'Use this function to get strings for ANSI Windows APIs. This will create a _
-     duplicate String as this class always works in Unicode
-    'TODO
-End Function
+''ANSI : Provides an ANSI version (1-byte per character) of the String _
+' ======================================================================================
+'Public Function ANSI() As String
+'    'Use this function to get strings for ANSI Windows APIs. This will create a _
+'     duplicate String as this class always works in Unicode
+'    'TODO
+'End Function
 
 'Append : Add another string to the end of the current string _
  ======================================================================================
@@ -474,11 +474,11 @@ Public Property Let Char( _
     End If
 End Property
 
-'CharInsert : Inserts a single Unicode character code _
- ======================================================================================
-Public Function CharInsert() As bluString
-    '
-End Function
+''CharInsert : Inserts a single Unicode character code _
+' ======================================================================================
+'Public Function CharInsert() As bluString
+'    '
+'End Function
 
 'CharProperties : Returns the Unicode properties for a character in the string _
  ======================================================================================
@@ -528,10 +528,28 @@ Public Function CharPush( _
         Else Let Data(My_Length - 1) = (CharacterCode And &HFFFF&)
 End Function
 
-'CharRemove : Removes a single Unicode character code _
+'CharRemove : Removes a single character from the string and returns its code _
  ======================================================================================
-Public Function CharRemove() As Long
-    '
+Public Function CharRemove( _
+    Optional ByRef Index As Long = 0 _
+) As Long
+    'Check the character position is within bounds
+    If Index < 0 Then Err.Raise (9): Exit Function
+    If Index >= My_Length Then Err.Raise (9): Exit Function
+    
+    'Return the character value
+    Let CharRemove = Data(Index)
+    
+    'If removing just the last character, simply shorten the string
+    If Index = My_Length - 1 Then
+        Let Me.Length = My_Length - 1
+    Else
+        'Shift the remainder of the string down a character
+        Call api_RtlMoveMemory( _
+            Me.Pointer(Index), Me.Pointer(Index + 1), _
+            (My_Length - Index - 1) * 2 _
+        )
+    End If
 End Function
 
 'Clear : Wipe the stored string, fill the buffer with nulls _
@@ -618,15 +636,18 @@ Public Function Equals( _
     End If
 End Function
 
-'Format : Format the text according to a pattern _
- ======================================================================================
-Public Function Format() As bluString
-    'Allow method chaining
-    Set Format = Me
-    'TODO: we need to decide what form this is going to take. _
-     a `printf` impl.? use VB's format? Or go for separate methods like `formatNumber`?
+''Format : Format the text according to a pattern _
+' ======================================================================================
+'Public Function Format() As bluString
+'    'Allow method chaining
+'    Set Format = Me
+'    'TODO: we need to decide what form this is going to take. _
+'     a `printf` impl.? use VB's format? Or go for separate methods like `formatNumber`?
 
-End Function
+'   'Some useful references:
+'   'http://msdn.microsoft.com/en-us/library/windows/desktop/ms647550%28v=vs.85%29.aspx
+'   'http://pg-torch-ic.jugem.jp/?eid=2
+'End Function
 
 'Insert : Insert some text in the middle of the existing string _
  ======================================================================================
@@ -786,20 +807,20 @@ TestBuffer:
     Let Data(My_Length) = 0
 End Property
 
-'Mid : Reduce the string to a sub-string portion _
- ======================================================================================
-Public Function Mid() As bluString
-    'Allow method chaining
-    Set Mid = Me
-    'TODO
-End Function
+''Mid : Reduce the string to a sub-string portion _
+' ======================================================================================
+'Public Function Mid() As bluString
+'    'Allow method chaining
+'    Set Mid = Me
+'    'TODO
+'End Function
 
-'Normalize : Fix inconsistent use of Unicode encoding _
- ======================================================================================
-Public Function Normalize() As bluString
-    'Allow method chaining
-    Set Normalize = Me
-End Function
+''Normalize : Fix inconsistent use of Unicode encoding _
+' ======================================================================================
+'Public Function Normalize() As bluString
+'    'Allow method chaining
+'    Set Normalize = Me
+'End Function
 
 'Pointer : Allow access to the "string" pointer for external copying _
  ======================================================================================
@@ -838,15 +859,15 @@ Public Function Prepend( _
     Call api_RtlMoveMemory(Me.Pointer, StrPtr(InputString), LenB(InputString))
 End Function
 
-'ReadFile : Import our string from a file _
- ======================================================================================
-Public Function ReadFile( _
-    ByRef FilePath As String _
-) As bluString
-    'Allow method chaining
-    Set ReadFile = Me
-    'TODO
-End Function
+''ReadFile : Import our string from a file _
+' ======================================================================================
+'Public Function ReadFile( _
+'    ByRef FilePath As String _
+') As bluString
+'    'Allow method chaining
+'    Set ReadFile = Me
+'    'TODO
+'End Function
 
 'ReduceBuffer : Free some memory by reducing the buffer to the string length _
  ======================================================================================
@@ -860,24 +881,24 @@ Public Function ReduceBuffer() As bluString
     Let Me.Length = My_Buffer
 End Function
 
-'Remove : Cut some text out of the middle of the existing string _
- ======================================================================================
-Public Function Remove() As bluString
-    'Allow method chaining
-    Set Remove = Me
-    'TODO
-End Function
+''Remove : Cut some text out of the middle of the existing string _
+' ======================================================================================
+'Public Function Remove() As bluString
+'    'Allow method chaining
+'    Set Remove = Me
+'    'TODO
+'End Function
 
-'Replace : Search for a sub-string and replace it with another _
- ======================================================================================
-Public Function Replace( _
-    ByRef SearchFor As String, _
-    ByRef ReplaceWith As String _
-) As bluString
-    'Allow method chaining
-    Set Replace = Me
-    'TODO
-End Function
+''Replace : Search for a sub-string and replace it with another _
+' ======================================================================================
+'Public Function Replace( _
+'    ByRef SearchFor As String, _
+'    ByRef ReplaceWith As String _
+') As bluString
+'    'Allow method chaining
+'    Set Replace = Me
+'    'TODO
+'End Function
 
 'Right : Keep only the given right-most number of characters _
  ======================================================================================
@@ -940,30 +961,30 @@ Public Property Let Text( _
     End If
 End Property
 
-'Trim : Strip whitespace characters from the beginning and end _
- ======================================================================================
-'TODO: We may want a look-up table of all whitespace chars in UCS-2
-Public Function Trim() As bluString
-    'Allow method chaining
-    Set Trim = Me
-    'TODO
-End Function
+''Trim : Strip whitespace characters from the beginning and end _
+' ======================================================================================
+''TODO: We may want a look-up table of all whitespace chars in UCS-2
+'Public Function Trim() As bluString
+'    'Allow method chaining
+'    Set Trim = Me
+'    'TODO
+'End Function
 
-'TrimLeft : Strip whitespace characters from the beginning _
- ======================================================================================
-Public Function TrimLeft() As bluString
-    'Allow method chaining
-    Set TrimLeft = Me
-    'TODO
-End Function
+''TrimLeft : Strip whitespace characters from the beginning _
+' ======================================================================================
+'Public Function TrimLeft() As bluString
+'    'Allow method chaining
+'    Set TrimLeft = Me
+'    'TODO
+'End Function
 
-'TrimRight : Strip whitespace characters from the end _
- ======================================================================================
-Public Function TrimRight() As bluString
-    'Allow method chaining
-    Set TrimRight = Me
-    'TODO
-End Function
+''TrimRight : Strip whitespace characters from the end _
+' ======================================================================================
+'Public Function TrimRight() As bluString
+'    'Allow method chaining
+'    Set TrimRight = Me
+'    'TODO
+'End Function
 
 'UCase : Convert our string to UPPERCASE _
  ======================================================================================
@@ -993,15 +1014,15 @@ Public Function UCase() As bluString
     End If
 End Function
 
-'WriteFile : Export our string to a file _
- ======================================================================================
-Public Function WriteFile( _
-    ByRef FilePath As String _
-) As bluString
-    'Allow method chaining
-    Set WriteFile = Me
-    'TODO
-End Function
+''WriteFile : Export our string to a file _
+' ======================================================================================
+'Public Function WriteFile( _
+'    ByRef FilePath As String _
+') As bluString
+'    'Allow method chaining
+'    Set WriteFile = Me
+'    'TODO
+'End Function
 
 '/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
 

@@ -26,7 +26,7 @@ Option Explicit
 
 'Special features of this class:
 
-' * Unicode (UCS-2) support
+' * Unicode (UCS-2) throughout
 
 ' * Null-strings are supported, so no memory is allocated until content is added _
     (other such string classes always seem to allocate their default buffer)
@@ -382,9 +382,7 @@ Public Function Append( _
     'Increase the length accordingly
     Let Me.Length = My_Length + Len(InputString)
     'Copy the new string in
-    Call api_RtlMoveMemory( _
-        UnsafePointer(Start), StrPtr(InputString), LenB(InputString) _
-    )
+    Call UnsafeCopyString(InputString, Start)
 End Function
 
 'Buffer : Number of characters to reserve in memory for the string _
@@ -492,10 +490,7 @@ Public Function CharInsert( _
     'Increase the string length by 1 to make room
     Let Me.Length = My_Length + 1
     'Shift the upper portion of our string up
-    Call api_RtlMoveMemory( _
-        UnsafePointer(Index + 1), UnsafePointer(Index), _
-        (My_Length - Index - 1) * 2 _
-    )
+    Call UnsafeCopy(Index, Index + 1, My_Length - Index - 1)
     'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
          we convert them to their signed equivilent to stuff them into two bytes
     If CharacterCode >= 32768 _
@@ -506,14 +501,14 @@ End Function
 'CharProperties : Returns the Unicode properties for a character in the string _
  ======================================================================================
 Public Function CharProperties( _
-    ByRef Position As Long _
+    ByRef Index As Long _
 ) As C1
     'Check the character index is within bounds
-    If Position < 0 Then Err.Raise (9): Exit Function
-    If Position >= My_Length Then Err.Raise (9): Exit Function
+    If Index < 0 Then Err.Raise (9): Exit Function
+    If Index >= My_Length Then Err.Raise (9): Exit Function
     'Use the API to fill the return value with the character properties
     Call api_GetStringTypeW( _
-        CT_CTYPE1, UnsafePointer(Position), 1, _
+        CT_CTYPE1, UnsafePointer(Index), 1, _
         VarPtr(CharProperties) _
     )
 End Function
@@ -568,10 +563,7 @@ Public Function CharRemove( _
         Let Me.Length = My_Length - 1
     Else
         'Shift the remainder of the string down a character
-        Call api_RtlMoveMemory( _
-            UnsafePointer(Index), UnsafePointer(Index + 1), _
-            (My_Length - Index - 1) * 2 _
-        )
+        Call UnsafeCopy(Index + 1, Index, My_Length - Index - 1)
     End If
 End Function
 
@@ -700,15 +692,12 @@ Public Function Insert( _
      (the buffer will be increased automatically if necessary)
     Let Me.Length = My_Length + Len(InsertString)
     'Shift the upper portion of our string up to make room for the inserted string
-    Call api_RtlMoveMemory( _
-        UnsafePointer(InsertPosition + Len(InsertString)), _
-        UnsafePointer(InsertPosition), _
-        (My_Length - InsertPosition) * 2 _
+    Call UnsafeCopy( _
+        InsertPosition, InsertPosition + Len(InsertString), _
+        My_Length - InsertPosition _
     )
     'Insert the new string
-    Call api_RtlMoveMemory( _
-        UnsafePointer(InsertPosition), StrPtr(InsertString), LenB(InsertString) _
-    )
+    Call UnsafeCopyString(InsertString, InsertPosition)
 End Function
 
 'Join : Appends another bluString to the end of this one _
@@ -859,7 +848,7 @@ Public Property Get Pointer( _
     'If a null string, return a null pointer (for potential API use)
     If My_Length = 0 _
         Then Let Pointer = 0 _
-        Else Let Pointer = VarPtr(Data(Index))
+        Else Let Pointer = UnsafePointer(Index)
 End Property
 
 'Prepend : Add our string to the end of the one provided _
@@ -878,9 +867,9 @@ Public Function Prepend( _
     'Increase the length accordingly
     Let Me.Length = My_Length + Start
     'Shift our string up
-    Call api_RtlMoveMemory(UnsafePointer(Start), UnsafePointer, My_Length * 2)
+    Call UnsafeCopy(0, Start, My_Length)
     'Copy the new string in
-    Call api_RtlMoveMemory(UnsafePointer, StrPtr(InputString), LenB(InputString))
+    Call UnsafeCopyString(InputString, 0)
 End Function
 
 ''ReadFile : Import our string from a file _
@@ -930,9 +919,7 @@ Public Function Remove( _
     If My_Length - Index - Length < 0 Then Err.Raise (9): Exit Function
     
     'Shift the remainder down into the removed area
-    Call api_RtlMoveMemory( _
-        UnsafePointer(Index), UnsafePointer(Index + Length), Length * 2 _
-    )
+    Call UnsafeCopy(Index + Length, Index, Length)
     'Update the string length
     Let Me.Length = My_Length - Length
 End Function
@@ -964,13 +951,8 @@ Public Function Right( _
     If NumberOfCharacters = 0 Then Call Me.Clear: Exit Function
     'Negative numbers are not supported, just use `Left` to keep x number of chars
     If NumberOfCharacters < 0 Then Err.Raise (9): Exit Function
-    
-    'Calculate the leftmost position that corresponds to 'x' rightmost characters
-    Dim Start As Long
-    Let Start = My_Length - NumberOfCharacters
-    
     'Shift the rightmost portion of the string down the beginning
-    Call api_RtlMoveMemory(UnsafePointer, UnsafePointer(Start), NumberOfCharacters)
+    Call UnsafeCopy(My_Length - NumberOfCharacters, 0, NumberOfCharacters)
     'Cut the string short. The buffer will be left at its old length, _
      if you know the string won't expand any more you can free the memory up _
      by calling the `ReduceBuffer` method
@@ -1082,3 +1064,27 @@ Private Property Get UnsafePointer( _
     'Return a pointer to the given character index
     Let UnsafePointer = VarPtr(Data(Index))
 End Property
+
+'UnsafeCopy : Move a portion of our string to another place in our string _
+ ======================================================================================
+Private Sub UnsafeCopy( _
+    ByRef IndexFrom As Long, _
+    ByRef IndexTo As Long, _
+    ByRef Length As Long _
+)   'No validation! internal use ONLY!
+    Call api_RtlMoveMemory( _
+        UnsafePointer(IndexTo), UnsafePointer(IndexFrom), Length * 2 _
+    )
+End Sub
+
+'UnsafeCopyString : Copies a VB String into our string _
+ ======================================================================================
+Private Sub UnsafeCopyString( _
+    ByRef Text As String, _
+    ByRef Index As Long _
+)   'No validation! internal use ONLY!
+    Call api_RtlMoveMemory( _
+        UnsafePointer(Index), StrPtr(Text), LenB(Text) _
+    )
+End Sub
+

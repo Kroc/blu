@@ -905,13 +905,37 @@ Public Function ReduceBuffer() As bluString
     Let Me.Length = My_Buffer
 End Function
 
-''Remove : Cut some text out of the middle of the existing string _
-' ======================================================================================
-'Public Function Remove() As bluString
-'    'Allow method chaining
-'    Set Remove = Me
-'    'TODO
-'End Function
+'Remove : Cut some text out of the middle of the existing string _
+ ======================================================================================
+Public Function Remove( _
+             ByRef Index As Long, _
+    Optional ByRef Length As Long = 0 _
+) As bluString
+    'Allow method chaining
+    Set Remove = Me
+    
+    'If you end up removing the whole string, make it a null-string
+    If (Index = 0) And (Length = My_Length - 1) Then Call Me.Clear: Exit Function
+    
+    'Starting position cannot be negative
+    If Index < 0 Then Err.Raise (9): Exit Function
+    'Cannot begin after the last character!
+    If Index > My_Length - 1 Then Err.Raise (9): Exit Function
+    'Desired length cannot be negative
+    If Length < 0 Then Err.Raise (9): Exit Function
+    'The optional length parameter defaults to zero, _
+     representative of the full string
+    If Length = 0 Then Length = My_Length - Index
+    'The length cannot be longer than the remainder of the string
+    If My_Length - Index - Length < 0 Then Err.Raise (9): Exit Function
+    
+    'Shift the remainder down into the removed area
+    Call api_RtlMoveMemory( _
+        UnsafePointer(Index), UnsafePointer(Index + Length), Length * 2 _
+    )
+    'Update the string length
+    Let Me.Length = My_Length - Length
+End Function
 
 ''Replace : Search for a sub-string and replace it with another _
 ' ======================================================================================

@@ -359,51 +359,46 @@ End Sub
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
 
-''ANSI : Provides an ANSI version (1-byte per character) of the String _
-' ======================================================================================
-'Public Function ANSI() As String
-'    'Use this function to get strings for ANSI Windows APIs. This will create a _
-'     duplicate String as this class always works in Unicode
-'    'TODO
-'End Function
-
 'Append : Add another string to the end of the current string _
  ======================================================================================
+'Text       | The String to be appended
+'Returns    | This class object (method chaining)
+'======================================================================================
 Public Function Append( _
-    ByRef InputString As String _
+    ByRef Text As String _
 ) As bluString
     'Allow method chaining
     Set Append = Me
     'Appending a null-string will do nothing
-    If LenB(InputString) = 0 Then Exit Function
+    If LenB(Text) = 0 Then Exit Function
     
     'The current length will be the starting position of the appended string
     Dim Start As Long: Let Start = My_Length
     'Increase the length accordingly
-    Let Me.Length = My_Length + Len(InputString)
+    Let Me.Length = My_Length + Len(Text)
     'Copy the new string in
-    Call UnsafeCopyString(InputString, Start)
+    Call UnsafeCopyString(Text, Start)
 End Function
 
 'Buffer : Number of characters to reserve in memory for the string _
  ======================================================================================
 Public Property Get Buffer() As BUFFER_SIZE: Let Buffer = My_Buffer: End Property
 Public Property Let Buffer( _
-    ByRef NumberOfChars As BUFFER_SIZE _
+    ByRef Length As BUFFER_SIZE _
 )
     'The buffer cannot be set to zero or a negative number. _
      We won't bother throwing an error as it won't affect behaviour
-    If NumberOfChars <= 0 Then
+    If Length <= 0 Then
         Debug.Print "[bluString] WARNING: Cannot set Buffer to 0 or negative number"
         Exit Property
     'Also you cannot go over the maximum buffer size
-    ElseIf NumberOfChars > BUFFER_MAX Then
+    ElseIf Length > BUFFER_MAX Then
         'Raise VB's "Overflow" error
         Err.Raise (6): Exit Property
     End If
     
     'Store the new desired buffer length (1-based)
-    Let My_Buffer = NumberOfChars
+    Let My_Buffer = Length
     'If the buffer is cut shorter than the current content, we need to adjust it too
     If My_Buffer < My_Length Then Let My_Length = My_Buffer
     'Resize the data store. Note that though `My_Buffer` is 1-based we abuse this _
@@ -416,7 +411,7 @@ End Property
 'Char : The Unicode (UCS-2) point of the character at the provided character index _
  ======================================================================================
 Public Property Get Char( _
-    ByRef Index As Long _
+    ByVal Index As Long _
 ) As Long
     'NOTE: Though `My_Length` is 1-based, but `Index` is 0-based, we allow the user _
            to access the spare element at the end as it will be the null terminator, _
@@ -431,7 +426,7 @@ Public Property Get Char( _
      before the end of our string. That is, -1 will be the second to last character
     If Index < 0 Then
         'The negative position cannot be more than the length of our string
-        If Abs(Index) > My_Length Then Err.Raise (9): Exit Function
+        If Abs(Index) > My_Length Then Err.Raise (9): Exit Property
         'Calculate the new position from the end of our string
         Let Char = (Data(My_Length + Index) And &HFFFF&)
     Else
@@ -442,50 +437,43 @@ Public Property Get Char( _
 End Property
 '--------------------------------------------------------------------------------------
 Public Property Let Char( _
-    ByRef Index As Long, ByRef Char As Long _
+    ByVal Index As Long, _
+    ByVal Char As Long _
 )
-    'UCS-2 Unicode is limited to 65536 code points
-    If Index > 65535 Then Err.Raise (9): Exit Property
-    'TODO: Could allow negative char codes as representative of signed Integer values
-    If Index < 0 Then Err.Raise (9): Exit Property
-    
     'If a character index is provided outside of the length of the string, error. _
      (note that, compared to the getter, you may not write to the null terminator)
-    If Index >= My_Length Then Err.Raise (9): Exit Property
+    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Property
+    'Validate the character code. It could be negative if it came from a VB _
+     signed-Integer, so this is converted to the positive equivilent
+    If Not ValidateChar(Char) Then Err.Raise (9): Exit Property
     
-    'If the position is negative, let the character code 'x' number of characters _
-     before the end of our string. That is, -1 will be the second to last character
-    If Index < 0 Then
-        'The negative position cannot be more than the length of our string
-        If Abs(Index) > My_Length Then Err.Raise (9): Exit Property
-        'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
-         we convert them to their signed equivilent to stuff them into two bytes
-        If Char >= 32768 _
-            Then Let Data(My_Length + Index) = (Char And &HFFFF&) - 65536 _
-            Else Let Data(My_Length + Index) = (Char And &HFFFF&)
-    Else
-        'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
-         we convert them to their signed equivilent to stuff them into two bytes
-        If Char >= 32768 _
-            Then Let Data(Index) = (Char And &HFFFF&) - 65536 _
-            Else Let Data(Index) = (Char And &HFFFF&)
-    End If
+    'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
+     we convert them to their signed equivilent to stuff them into two bytes
+    If Char >= 32768 _
+        Then Let Data(Index) = (Char And &HFFFF&) - 65536 _
+        Else Let Data(Index) = (Char And &HFFFF&)
 End Property
 
 'CharInsert : Inserts a single Unicode character code _
  ======================================================================================
+'Index      | Position within string (0-based). Can be negative, in which case the _
+            | Index is calculated from the end of the string working backwards
+'Char       | A Unicode character code (0 to 65535)
+'Returns    | This class object (method chaining)
+'======================================================================================
 Public Function CharInsert( _
-    ByRef Index As Long, _
-    ByRef CharacterCode As Long _
+    ByVal Index As Long, _
+    ByVal Char As Long _
 ) As bluString
     'Allow method chaining
     Set CharInsert = Me
-    'Check the character code is within range
-    If CharacterCode < 0 Then Err.Raise (9): Exit Function
-    If CharacterCode > 65535 Then Err.Raise (9): Exit Function
-    'Check the character index is within range
-    If Index < 0 Then Err.Raise (9): Exit Function
-    If Index >= My_Length Then Err.Raise (9): Exit Function
+    
+    'Check the character index is within range, _
+     a negative Index will work backwards from the end of the string
+    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
+    'Validate the character code. It could be negative if it came from a VB _
+     signed-Integer, so this is converted to the positive equivilent
+    If Not ValidateChar(Char) Then Err.Raise (9): Exit Function
     
     'Increase the string length by 1 to make room
     Let Me.Length = My_Length + 1
@@ -493,19 +481,24 @@ Public Function CharInsert( _
     Call UnsafeCopy(Index, Index + 1, My_Length - Index - 1)
     'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
          we convert them to their signed equivilent to stuff them into two bytes
-    If CharacterCode >= 32768 _
-        Then Let Data(Index) = (CharacterCode And &HFFFF&) - 65536 _
-        Else Let Data(Index) = (CharacterCode And &HFFFF&)
+    If Char >= 32768 _
+        Then Let Data(Index) = (Char And &HFFFF&) - 65536 _
+        Else Let Data(Index) = (Char And &HFFFF&)
 End Function
 
 'CharProperties : Returns the Unicode properties for a character in the string _
  ======================================================================================
+'Index      | Position within string (0-based). Can be negative, in which case the _
+            | Index is calculated from the end of the string working backwards
+'Returns    | A bit battern that describes the Unicode properties of the character _
+            | as defined in the C1 enum
+'======================================================================================
 Public Function CharProperties( _
-    ByRef Index As Long _
+    ByVal Index As Long _
 ) As C1
-    'Check the character index is within bounds
-    If Index < 0 Then Err.Raise (9): Exit Function
-    If Index >= My_Length Then Err.Raise (9): Exit Function
+    'Check the character index is within range, _
+     a negative Index will work backwards from the end of the string
+    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
     'Use the API to fill the return value with the character properties
     Call api_GetStringTypeW( _
         CT_CTYPE1, UnsafePointer(Index), 1, _
@@ -515,6 +508,8 @@ End Function
 
 'CharPull : Removes the last character of the string and returns the character code _
  ======================================================================================
+'Returns    | A Unicode character point (0 to 65535)
+'======================================================================================
 Public Function CharPull() As Long
     'If there are no characters, just return null
     If My_Length = 0 Then Exit Function
@@ -527,13 +522,17 @@ End Function
 
 'CharPush : Appends a single character code to the end of the string _
  ======================================================================================
+'Char       | Unicode character point (0 to 65535)
+'Returns    | This class object (method chaining)
+'======================================================================================
 Public Function CharPush( _
-    ByVal CharacterCode As Long _
+    ByVal Char As Long _
 ) As bluString
     'Allow method chaining
     Set CharPush = Me
-    'Character code cannot be out of range
-    If CharacterCode < 0 Or CharacterCode > 65535 Then Err.Raise (9): Exit Function
+    'Validate the character code. It could be negative if it came from a VB _
+     signed-Integer, so this is converted to the positive equivilent
+    If Not ValidateChar(Char) Then Err.Raise (9): Exit Function
     
     'Increase the length of our string by one character _
      (the buffer will manage any necessary growth)
@@ -541,19 +540,23 @@ Public Function CharPush( _
     'Set the character code of the last character
     'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
          we convert them to their signed equivilent to stuff them into two bytes
-    If CharacterCode >= 32768 _
-        Then Let Data(My_Length - 1) = (CharacterCode And &HFFFF&) - 65536 _
-        Else Let Data(My_Length - 1) = (CharacterCode And &HFFFF&)
+    If Char >= 32768 _
+        Then Let Data(My_Length - 1) = (Char And &HFFFF&) - 65536 _
+        Else Let Data(My_Length - 1) = (Char And &HFFFF&)
 End Function
 
 'CharRemove : Removes a single character from the string and returns its code _
  ======================================================================================
+'[Index]    | Position within string (0-based). Can be negative, in which case the _
+            | Index is calculated from the end of the string working backwards
+'Returns    | A Unicode character point (0 to 65535)
+'======================================================================================
 Public Function CharRemove( _
-    Optional ByRef Index As Long = 0 _
+    Optional ByVal Index As Long = 0 _
 ) As Long
-    'Check the character position is within bounds
-    If Index < 0 Then Err.Raise (9): Exit Function
-    If Index >= My_Length Then Err.Raise (9): Exit Function
+    'Check the character index is within range, _
+     a negative Index will work backwards from the end of the string
+    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
     
     'Return the character value
     Let CharRemove = Data(Index)
@@ -564,11 +567,15 @@ Public Function CharRemove( _
     Else
         'Shift the remainder of the string down a character
         Call UnsafeCopy(Index + 1, Index, My_Length - Index - 1)
+        'Reduce the overal length of the string by one
+        Let Me.Length = My_Length - 1
     End If
 End Function
 
 'Clear : Wipe the stored string, fill the buffer with nulls _
  ======================================================================================
+'Returns    | This class object (method chaining)
+'======================================================================================
 Public Function Clear() As bluString
     'Allow method chaining
     Set Clear = Me
@@ -585,21 +592,26 @@ End Function
 
 'Clone : Duplicate our string (or subportion) into another bluString instance _
  ======================================================================================
+'[Index]    | Position within string (0-based). Can be negative, in which case the _
+            | Index is calculated from the end of the string working backwards
+'[Length]   | Number of characters to copy, can be 0 which will imply the remainder _
+            | of the string, from the Index
+'Returns    | This class object (method chaining)
+'======================================================================================
 Public Function Clone( _
-    Optional ByRef FromPosition As Long = 0, _
+    Optional ByVal Index As Long = 0, _
     Optional ByRef Length As Long = 0 _
 ) As bluString
-    'Starting position cannot be negative
-    If FromPosition < 0 Then Err.Raise (9): Exit Function
-    'Cannot begin after the last character!
-    If FromPosition > My_Length - 1 Then Err.Raise (9): Exit Function
+    'Check the character index is within range, _
+     a negative Index will work backwards from the end of the string
+    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
     'Desired length cannot be negative
     If Length < 0 Then Err.Raise (9): Exit Function
     'The optional length parameter defaults to zero, _
      representative of the full string
-    If Length = 0 Then Length = My_Length - FromPosition
+    If Length = 0 Then Length = My_Length - Index
     'The length cannot be longer than the remainder of the string
-    If My_Length - FromPosition - Length < 0 Then Err.Raise (9): Exit Function
+    If My_Length - Index - Length < 0 Then Err.Raise (9): Exit Function
     
     'Instantiate the return object
     Set Clone = New bluString
@@ -607,7 +619,7 @@ Public Function Clone( _
     Let Clone.Length = Length
     'Copy the text across (if there is any)
     If My_Length > 0 Then Call api_RtlMoveMemory( _
-        Clone.Pointer(FromPosition), UnsafePointer, Length * 2 _
+        Clone.Pointer(Index), UnsafePointer, Length * 2 _
     )
 End Function
 
@@ -666,42 +678,38 @@ End Function
 
 'Insert : Insert some text in the middle of the existing string _
  ======================================================================================
+'Text       | VB String to insert into our string
+'Index      | Position within our string (0-based). Can be negative, in which case _
+            | the Index is calculated from the end of the string working backwards
+'Returns    | This class object (method chaining)
+'======================================================================================
 Public Function Insert( _
-    ByRef InsertString As String, _
-    ByVal InsertPosition As Long _
+    ByRef Text As String, _
+    ByVal Index As Long _
 ) As bluString
     'Allow method chaining
     Set Insert = Me
     'Inserting a null-string won't do anything
-    If LenB(InsertString) = 0 Then Exit Function
+    If LenB(Text) = 0 Then Exit Function
     
-    'Cannot insert beyond the last character _
-     (note that `Position` is 0-based and `My_Length` is 1-based)
-    If InsertPosition >= My_Length Then Err.Raise (9): Exit Function
-    
-    'If the insert position is negative, do the insert 'x' number of characters _
-     before the end of our string. That is, -1 will be the second to last character
-    If InsertPosition < 0 Then
-        'The negative position cannot be more than the length of our string
-        If Abs(InsertPosition) > My_Length Then Err.Raise (9): Exit Function
-        'Calculate the new position from the end of our string
-        Let InsertPosition = My_Length + InsertPosition
-    End If
+    'Check the character index is within range, _
+     a negative Index will work backwards from the end of the string
+    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
     
     'Increase the length of our string to fit the inserted string _
      (the buffer will be increased automatically if necessary)
-    Let Me.Length = My_Length + Len(InsertString)
+    Let Me.Length = My_Length + Len(Text)
     'Shift the upper portion of our string up to make room for the inserted string
-    Call UnsafeCopy( _
-        InsertPosition, InsertPosition + Len(InsertString), _
-        My_Length - InsertPosition _
-    )
+    Call UnsafeCopy(Index, Index + Len(Text), My_Length - Index)
     'Insert the new string
-    Call UnsafeCopyString(InsertString, InsertPosition)
+    Call UnsafeCopyString(Text, Index)
 End Function
 
 'Join : Appends another bluString to the end of this one _
  ======================================================================================
+'InputString| Another bluString instance to take text from
+'Returns    | This class object (method chaining)
+'======================================================================================
 Public Function Join( _
     ByRef InputString As bluString _
 ) As bluString
@@ -722,6 +730,8 @@ End Function
 
 'LCase : Convert our string to lowercase _
  ======================================================================================
+'Returns    | This class object (method chaining)
+'======================================================================================
 Public Function LCase() As bluString
     'Allow method chaining
     Set LCase = Me
@@ -756,12 +766,12 @@ Public Function Left( _
     'Allow method chaining
     Set Left = Me
     
-    'You can't increase the length with this!
-    If NumberOfCharacters > My_Length Then Err.Raise (9): Exit Function
-    'Trimming to the same length does nothing!
-    If NumberOfCharacters = My_Length Then Exit Function
     'Shortcut if trimming to zero
     If NumberOfCharacters = 0 Then Call Me.Clear: Exit Function
+    'Trimming to the same length does nothing!
+    If NumberOfCharacters = My_Length Then Exit Function
+    'You can't increase the length with this!
+    If NumberOfCharacters > My_Length Then Err.Raise (9): Exit Function
     
     'If the position is negative, work out 'x' number of characters before the end of _
      our string. That is, -1 will be the second to last character
@@ -838,12 +848,11 @@ End Property
 'Pointer : Allow access to the "string" pointer for external copying _
  ======================================================================================
 Public Property Get Pointer( _
-    Optional ByRef Index As Long = 0 _
+    Optional ByVal Index As Long = 0 _
 ) As Long
-    'Provided character index cannot be longer than the string
-    If Index > My_Length Then Err.Raise (9): Exit Property
-    'Also can't be negative
-    If Index < 0 Then Err.Raise (0): Exit Property
+    'Check the character index is within range, _
+     a negative Index will work backwards from the end of the string
+    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Property
     
     'If a null string, return a null pointer (for potential API use)
     If My_Length = 0 _
@@ -855,21 +864,21 @@ End Property
  ======================================================================================
 'And no, "prefix" is not the right word for this!
 Public Function Prepend( _
-    ByRef InputString As String _
+    ByRef Text As String _
 ) As bluString
     'Allow method chaining
     Set Prepend = Me
     'Prepending a null-string will do nothing
-    If LenB(InputString) = 0 Then Exit Function
+    If LenB(Text) = 0 Then Exit Function
     
     'The length of the new String will be the new starting position of our string
-    Dim Start As Long: Let Start = Len(InputString)
+    Dim Start As Long: Let Start = Len(Text)
     'Increase the length accordingly
     Let Me.Length = My_Length + Start
     'Shift our string up
     Call UnsafeCopy(0, Start, My_Length)
     'Copy the new string in
-    Call UnsafeCopyString(InputString, 0)
+    Call UnsafeCopyString(Text, 0)
 End Function
 
 ''ReadFile : Import our string from a file _
@@ -880,10 +889,13 @@ End Function
 '    'Allow method chaining
 '    Set ReadFile = Me
 '    'TODO
+'   'http://stackoverflow.com/questions/15809081/encoding-of-text-files-in-vb-6-0
 'End Function
 
 'ReduceBuffer : Free some memory by reducing the buffer to the string length _
  ======================================================================================
+'Returns    | This class object (method chaining)
+'======================================================================================
 'Of course you could just use `bluString.Buffer = bluString.Length`, but this is _
  intended to be more obvious and safer for potential future changes / expansion.
 'It's strongly advised NOT to expand the string after you've reduced the buffer
@@ -896,20 +908,25 @@ End Function
 
 'Remove : Cut some text out of the middle of the existing string _
  ======================================================================================
+'Index      | Position within our string (0-based). Can be negative, in which case _
+            | the Index is calculated from the end of the string working backwards
+'[Length]   | Number of characters to remove, 0 = remainder of string from Index
+'Returns    | This class object (method chaining)
+'======================================================================================
 Public Function Remove( _
-             ByRef Index As Long, _
+             ByVal Index As Long, _
     Optional ByRef Length As Long = 0 _
 ) As bluString
     'Allow method chaining
     Set Remove = Me
     
+    'Check the character index is within range, _
+     a negative Index will work backwards from the end of the string
+    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
+    
     'If you end up removing the whole string, make it a null-string
     If (Index = 0) And (Length = My_Length - 1) Then Call Me.Clear: Exit Function
     
-    'Starting position cannot be negative
-    If Index < 0 Then Err.Raise (9): Exit Function
-    'Cannot begin after the last character!
-    If Index > My_Length - 1 Then Err.Raise (9): Exit Function
     'Desired length cannot be negative
     If Length < 0 Then Err.Raise (9): Exit Function
     'The optional length parameter defaults to zero, _
@@ -937,26 +954,29 @@ End Function
 
 'Right : Keep only the given right-most number of characters _
  ======================================================================================
+'Length     | Number of characters to keep working backwards from the right
+'Returns    | This class object (method chaining)
+'======================================================================================
 Public Function Right( _
-    ByRef NumberOfCharacters As Long _
+    ByRef Length As Long _
 ) As bluString
     'Allow method chaining
     Set Right = Me
     
     'Cannot trim longer than the string!
-    If NumberOfCharacters > My_Length Then Err.Raise (9): Exit Function
+    If Length > My_Length Then Err.Raise (9): Exit Function
     'Keeping all characters does nothing!
-    If NumberOfCharacters = My_Length Then Exit Function
+    If Length = My_Length Then Exit Function
     'Removing all characters creates a null-string!
-    If NumberOfCharacters = 0 Then Call Me.Clear: Exit Function
+    If Length = 0 Then Call Me.Clear: Exit Function
     'Negative numbers are not supported, just use `Left` to keep x number of chars
-    If NumberOfCharacters < 0 Then Err.Raise (9): Exit Function
+    If Length < 0 Then Err.Raise (9): Exit Function
     'Shift the rightmost portion of the string down the beginning
-    Call UnsafeCopy(My_Length - NumberOfCharacters, 0, NumberOfCharacters)
+    Call UnsafeCopy(My_Length - Length, 0, Length)
     'Cut the string short. The buffer will be left at its old length, _
      if you know the string won't expand any more you can free the memory up _
      by calling the `ReduceBuffer` method
-    Let Me.Length = NumberOfCharacters
+    Let Me.Length = Length
 End Function
 
 'Text : Get/Let the contents as native VB strings _
@@ -1018,6 +1038,8 @@ End Property
 
 'UCase : Convert our string to UPPERCASE _
  ======================================================================================
+'Returns    | This class object (method chaining)
+'======================================================================================
 Public Function UCase() As bluString
     'Allow method chaining
     Set UCase = Me
@@ -1058,6 +1080,9 @@ End Function
 
 'UnsafePointer : Gets a pointer to the string, without validation -- internal use _
  ======================================================================================
+'[Index]    | Position within our string (0-based)
+'Returns    | Memory pointer to the character index within our string
+'======================================================================================
 Private Property Get UnsafePointer( _
     Optional ByRef Index As Long = 0 _
 ) As Long
@@ -1067,6 +1092,10 @@ End Property
 
 'UnsafeCopy : Move a portion of our string to another place in our string _
  ======================================================================================
+'IndexFrom  | Position within string (0-based) to begin copying from
+'IndexTo    | As above, but where to copy to
+'Length     | Number of characters (not Bytes) to copy
+'======================================================================================
 Private Sub UnsafeCopy( _
     ByRef IndexFrom As Long, _
     ByRef IndexTo As Long, _
@@ -1079,12 +1108,78 @@ End Sub
 
 'UnsafeCopyString : Copies a VB String into our string _
  ======================================================================================
+'Text       | VB String to copy into our string
+'Index      | Position within our string (0-based) to begin copying
+'======================================================================================
 Private Sub UnsafeCopyString( _
     ByRef Text As String, _
     ByRef Index As Long _
 )   'No validation! internal use ONLY!
+    '(This will overwrite anything already in place, so it's assumed you've already _
+      handled resizing the string and copying things out)
     Call api_RtlMoveMemory( _
         UnsafePointer(Index), StrPtr(Text), LenB(Text) _
     )
 End Sub
 
+'ValidateChar : Validates a Unicode character code _
+ ======================================================================================
+'Char       | A Unicode character code (0 to 65535) or a negative number representing _
+            | the signed-Integer equivilent of character codes 32768 to 65535
+'Returns    | False for an invalid Char, True for a valid one
+'======================================================================================
+Private Function ValidateChar( _
+    ByRef Char As Long _
+) As Boolean
+    'If the character code is negative, it might be from a signed-Integer
+    If Char < 0 Then
+        'If it's in range, convert it to a positive number
+        If Char >= -32768 Then
+            Let Char = Char + 65535
+            Let ValidateChar = True
+        End If
+    Else
+        'Maximum of 65535
+        If Char < 65536 Then Let ValidateChar = True
+    End If
+End Function
+
+'ValidateIndex : Validates an index for the string _
+ ======================================================================================
+'Index      | Position within string (0-based)
+'Returns    | False for an invalid Index, True for a valid one
+'======================================================================================
+Private Function ValidateIndex( _
+    ByRef Index As Long _
+) As Boolean
+    'Index cannot be less than zero
+    If (Index >= 0) Then
+        'Index cannot be beyond the end of the string _
+        (note that the index is 0-based and the length is 1-based)
+        If (Index < My_Length) Then Let ValidateIndex = True
+    End If
+End Function
+
+'ValidateIndexAllowNegative : A negative index gives 'x' number of chars from the end _
+ ======================================================================================
+'Index      | Position within string (0-based). Can be negative, in which case the _
+            | Index is updated to be from the end of the string working backwards
+'Returns    | False for an invalid Index, True for a valid one
+'======================================================================================
+Private Function ValidateIndexAllowNegative( _
+    ByRef Index As Long _
+) As Boolean
+    'Is the Index negative?
+    If Index < 0 Then
+        'The negative position cannot be more than the length of our string
+        If Abs(Index) < My_Length Then
+            'Update the Index to work backwards from the end of the string
+            Let Index = My_Length + Index
+            Let ValidateIndexAllowNegative = True
+        End If
+    Else
+        'Index cannot be beyond the end of the string _
+        (note that the index is 0-based and the length is 1-based)
+        If (Index < My_Length) Then Let ValidateIndexAllowNegative = True
+    End If
+End Function

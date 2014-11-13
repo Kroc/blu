@@ -688,16 +688,78 @@ Public Function Equals( _
     End If
 End Function
 
-''Format : Format the text according to a pattern _
-' ======================================================================================
-''Arguments ...  |
-''Returns        | A new bluString instance, formatted according to our string
-''======================================================================================
-'Public Function Format( _
-'    ParamArray Params() As Variant _
-') As bluString
-'    'http://www.serpentine.com/blog/2011/06/29/here-be-dragons-advances-in-problems-you-didnt-even-know-you-had/
-'End Function
+'Format : Replace markers in the text with the values provided _
+ ======================================================================================
+'Arguments ...  |
+'Returns        | A new bluString instance, formatted according to our string
+'======================================================================================
+Public Function Format( _
+    ParamArray Params() As Variant _
+) As bluString
+    'Instantiate the return object. We clone this string first since if there are _
+     no markers in the string, this function will still return the original string
+    Set Format = Me.Clone
+    
+    Dim First As Long, Last As Long
+    Let First = LBound(Params): Let Last = UBound(Params)
+    
+    'If no parameters are provided!
+    If Last < First Then Exit Function
+    
+    'For non-String parameters, we will do the String conversion, but we will need _
+     somewhere to store them so that we can get at their pointer
+    'There are APIs for doing String conversion <vbforums.com/showthread.php?736407> _
+     but CStr is probably using this behind the scenes anyway. Also, rolling your _
+     own String conversion is actually super difficult _
+     <serpentine.com/blog/2011/06/29/here-be-dragons>
+    Dim Strings() As String
+    ReDim Strings(First To Last) As String
+    'For some types we won't need to convert to String and can use the already _
+     existing pointer (for example, working with bluStrings)
+    Dim Pointers() As Long
+    ReDim Pointers(First To Last) As Long
+    
+    'Walk the params provided
+    Dim Index As Long
+    For Index = First To Last
+        'Check the type of the parameter (Long, String, Double &c.)
+        Dim ParamType As VBA.VbVarType
+        Let ParamType = VarType(Params(Index))
+        
+        Select Case ParamType
+            Case vbString
+                'We don't want to duplicate existing Strings, we just need the _
+                 existing pointers. (`StrPtr` will peek correctly into the Variant)
+                 Let Pointers(Index) = StrPtr(Params(Index))
+                 
+            Case vbObject
+                'If this is a bluString, use its string without cloning it. For _
+                 other objects, we can't cast to String. Raise "Type Mismatch" error
+                If TypeOf Param Is bluString _
+                    Then Let Pointers(Index) = Param.Pointer _
+                    Else Err.Raise (13): GoTo Finish
+            
+            'These types can be converted to a String
+            Case vbBoolean, vbByte, vbCurrency, vbDate, vbDecimal, vbDouble, _
+                 vbEmpty, vbError, vbInteger, vbLong, vbSingle
+                Let Strings(Index) = CStr(Params(Index))
+                Let Pointers(Index) = StrPtr(Strings(Index))
+                
+            Case Else
+                'All other data types can't be co-erced
+                Err.Raise (13): GoTo Finish
+        End Select
+    Next Index
+    
+    '----------------------------------------------------------------------------------
+    
+    'TODO: Manual search and replace (using pointers)
+    
+    '----------------------------------------------------------------------------------
+Finish:
+    'And clean up
+    Erase Strings, Pointers
+End Function
 
 'Insert : Insert some text in the middle of the existing string _
  ======================================================================================
@@ -728,8 +790,10 @@ Public Function Insert( _
     Call UnsafeCopyString(Text, Index)
 End Function
 
-'IsNull : Simply returns True if the string length is 0 _
+'IsNull _
  ======================================================================================
+'Returns        | True if our string is Null (length = 0), False otherwise
+'======================================================================================
 Public Property Get IsNull() As Boolean
     'This is intended for readability, since you can obviously just check Length = 0
     Let IsNull = (My_Length = 0)

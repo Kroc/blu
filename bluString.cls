@@ -258,6 +258,22 @@ Public Enum C1
     C1_DEFINED = 2 ^ 9                  'Defined, but not one of the other C1_* types
 End Enum
 
+'String Searching: _
+ --------------------------------------------------------------------------------------
+'Find the first occurance of a string in another [case-sensitive] _
+ <msdn.microsoft.com/en-us/library/windows/desktop/bb773436%28v=vs.85%29.aspx>
+Private Declare Function api_StrStr Lib "shlwapi" Alias "StrStrW" ( _
+    ByVal HaystackPointer As Long, _
+    ByVal NeedlePointer As Long _
+) As Long
+
+'Find the first occurance of a string in another [case-insensitive] _
+ <msdn.microsoft.com/en-us/library/windows/desktop/bb773439%28v=vs.85%29.aspx>
+Private Declare Function api_StrStrI Lib "shlwapi" Alias "StrStrIW" ( _
+    ByVal HaystackPointer As Long, _
+    ByVal NeedlePointer As Long _
+) As Long
+
 '/// CLASS STORAGE ////////////////////////////////////////////////////////////////////
 
 'We'll cache the Windows version here as it's very slow to do this every time we _
@@ -270,6 +286,8 @@ Private Data() As Integer
  UCS-2 uses two bytes per character
 Private My_Buffer As Long
 Private My_Length As Long
+'A cache of `My_Length * 2` as it's used in a lot of places
+Private My_LengthB As Long
 
 'You can set the buffer to any size (and if you know how long your string is going to _
  be beforehand, you should), but if you don't leave room for growth then the memory _
@@ -361,8 +379,8 @@ End Sub
 
 'Append : Add another string to the end of the current string _
  ======================================================================================
-'Text       | The String to be appended
-'Returns    | This class object (method chaining)
+'Text           | The String to be appended
+'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function Append( _
     ByRef Text As String _
@@ -400,7 +418,10 @@ Public Property Let Buffer( _
     'Store the new desired buffer length (1-based)
     Let My_Buffer = Length
     'If the buffer is cut shorter than the current content, we need to adjust it too
-    If My_Buffer < My_Length Then Let My_Length = My_Buffer
+    If My_Buffer < My_Length Then
+        Let My_Length = My_Buffer
+        Let My_LengthB = My_Length * 2
+    End If
     'Resize the data store. Note that though `My_Buffer` is 1-based we abuse this _
      to provide room for a null-terminator at the end of the string
     ReDim Preserve Data(0 To My_Buffer) As Integer
@@ -456,10 +477,10 @@ End Property
 
 'CharInsert : Inserts a single Unicode character code _
  ======================================================================================
-'Index      | Position within string (0-based). Can be negative, in which case the _
-            | Index is calculated from the end of the string working backwards
-'Char       | A Unicode character code (0 to 65535)
-'Returns    | This class object (method chaining)
+'Index          | Position within string (0-based). Can be negative, in which case the _
+                | Index is calculated from the end of the string working backwards
+'Char           | A Unicode character code (0 to 65535)
+'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function CharInsert( _
     ByVal Index As Long, _
@@ -488,10 +509,10 @@ End Function
 
 'CharProperties : Returns the Unicode properties for a character in the string _
  ======================================================================================
-'Index      | Position within string (0-based). Can be negative, in which case the _
-            | Index is calculated from the end of the string working backwards
-'Returns    | A bit battern that describes the Unicode properties of the character _
-            | as defined in the C1 enum
+'Index          | Position within string (0-based). Can be negative, in which case the _
+                | Index is calculated from the end of the string working backwards
+'Returns        | A bit battern that describes the Unicode properties of the character _
+                | as defined in the C1 enum
 '======================================================================================
 Public Function CharProperties( _
     ByVal Index As Long _
@@ -508,7 +529,7 @@ End Function
 
 'CharPull : Removes the last character of the string and returns the character code _
  ======================================================================================
-'Returns    | A Unicode character point (0 to 65535)
+'Returns        | A Unicode character point (0 to 65535)
 '======================================================================================
 Public Function CharPull() As Long
     'If there are no characters, just return null
@@ -522,8 +543,8 @@ End Function
 
 'CharPush : Appends a single character code to the end of the string _
  ======================================================================================
-'Char       | Unicode character point (0 to 65535)
-'Returns    | This class object (method chaining)
+'Char           | Unicode character point (0 to 65535)
+'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function CharPush( _
     ByVal Char As Long _
@@ -547,9 +568,9 @@ End Function
 
 'CharRemove : Removes a single character from the string and returns its code _
  ======================================================================================
-'[Index]    | Position within string (0-based). Can be negative, in which case the _
-            | Index is calculated from the end of the string working backwards
-'Returns    | A Unicode character point (0 to 65535)
+'[Index]        | Position within string (0-based). Can be negative, in which case the _
+                | Index is calculated from the end of the string working backwards
+'Returns        | A Unicode character point (0 to 65535)
 '======================================================================================
 Public Function CharRemove( _
     Optional ByVal Index As Long = 0 _
@@ -574,7 +595,7 @@ End Function
 
 'Clear : Wipe the stored string, fill the buffer with nulls _
  ======================================================================================
-'Returns    | This class object (method chaining)
+'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function Clear() As bluString
     'Allow method chaining
@@ -584,23 +605,23 @@ Public Function Clear() As bluString
         'This does not change the size of the buffer, should it have increased. _
          If you intend to reuse a large string for a small string, create a new _
          bluString instance instead or call the `ReduceBuffer` method
-        Call api_RtlZeroMemory(UnsafePointer, My_Length * 2)
+        Call api_RtlZeroMemory(UnsafePointer, My_LengthB)
         'Mark the string as being null-length
-        Let My_Length = 0
+        Let My_Length = 0: Let My_LengthB = 0
     End If
 End Function
 
 'Clone : Duplicate our string (or subportion) into another bluString instance _
  ======================================================================================
-'[Index]    | Position within string (0-based). Can be negative, in which case the _
-            | Index is calculated from the end of the string working backwards
-'[Length]   | Number of characters to copy, can be 0 which will imply the remainder _
-            | of the string, from the Index
-'Returns    | This class object (method chaining)
+'[Index]        | Position within string (0-based). Can be negative, in which case the _
+                | Index is calculated from the end of the string working backwards
+'[Length]       | Number of characters to copy, can be 0 which will imply the _
+                | remainder of the string, from the Index
+'Returns        | A new bluString instance
 '======================================================================================
 Public Function Clone( _
     Optional ByVal Index As Long = 0, _
-    Optional ByRef Length As Long = 0 _
+    Optional ByVal Length As Long = 0 _
 ) As bluString
     'Check the character index is within range, _
      a negative Index will work backwards from the end of the string
@@ -609,9 +630,9 @@ Public Function Clone( _
     If Length < 0 Then Err.Raise (9): Exit Function
     'The optional length parameter defaults to zero, _
      representative of the full string
-    If Length = 0 Then Length = My_Length - Index
+    If Length = 0 Then Let Length = My_Length - Index
     'The length cannot be longer than the remainder of the string
-    If My_Length - Index - Length < 0 Then Err.Raise (9): Exit Function
+    If (My_Length - Index - Length) < 0 Then Err.Raise (9): Exit Function
     
     'Instantiate the return object
     Set Clone = New bluString
@@ -625,16 +646,20 @@ End Function
 
 'Equals : A fast method to check if one string equals another _
  ======================================================================================
+'Text           | VB String to compare our string against
+'CompareMethod  | Whether to use case-sensitive or case-insensitive comparison
+'Returns        | True if strings are equal, False if not
+'======================================================================================
 Public Function Equals( _
-             ByRef Comparison As String, _
+             ByRef Text As String, _
     Optional ByRef CompareMethod As VBA.VbCompareMethod = vbTextCompare _
 ) As Boolean
     'Handle null strings: _
      Two null strings are considered equal, otherwise result is inequal
     If My_Length = 0 Then
-        Let Equals = (LenB(Comparison) = 0)
+        Let Equals = (LenB(Text) = 0)
         Exit Function
-    ElseIf LenB(Comparison) = 0 Then
+    ElseIf LenB(Text) = 0 Then
         Let Equals = (My_Length = 0)
         Exit Function
     End If
@@ -649,7 +674,7 @@ Public Function Equals( _
          user 's current locale, so we don't need to manually fetch the locale name
         Let Equals = (api_CompareStringEx( _
             0&, Flags, _
-            StrPtr(Comparison), -1, _
+            StrPtr(Text), -1, _
             UnsafePointer, -1, _
             0&, 0&, 0& _
         ) = CSTR_EQUAL)
@@ -657,7 +682,7 @@ Public Function Equals( _
         'Fall back to the XP-compatible API
         Let Equals = (api_CompareString( _
             api_GetThreadLocale(), Flags, _
-            StrPtr(Comparison), -1, _
+            StrPtr(Text), -1, _
             UnsafePointer, -1 _
         ) = CSTR_EQUAL)
     End If
@@ -665,23 +690,21 @@ End Function
 
 ''Format : Format the text according to a pattern _
 ' ======================================================================================
-'Public Function Format() As bluString
-'    'Allow method chaining
-'    Set Format = Me
-'    'TODO: we need to decide what form this is going to take. _
-'     a `printf` impl.? use VB's format? Or go for separate methods like `formatNumber`?
-
-'   'Some useful references:
-'   'http://msdn.microsoft.com/en-us/library/windows/desktop/ms647550%28v=vs.85%29.aspx
-'   'http://pg-torch-ic.jugem.jp/?eid=2
+''Arguments ...  |
+''Returns        | A new bluString instance, formatted according to our string
+''======================================================================================
+'Public Function Format( _
+'    ParamArray Params() As Variant _
+') As bluString
+'    'http://www.serpentine.com/blog/2011/06/29/here-be-dragons-advances-in-problems-you-didnt-even-know-you-had/
 'End Function
 
 'Insert : Insert some text in the middle of the existing string _
  ======================================================================================
-'Text       | VB String to insert into our string
-'Index      | Position within our string (0-based). Can be negative, in which case _
-            | the Index is calculated from the end of the string working backwards
-'Returns    | This class object (method chaining)
+'Text           | VB String to insert into our string
+'Index          | Position within our string (0-based). Can be negative, in which case _
+                | the Index is calculated from the end of the string working backwards
+'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function Insert( _
     ByRef Text As String, _
@@ -705,10 +728,17 @@ Public Function Insert( _
     Call UnsafeCopyString(Text, Index)
 End Function
 
+'IsNull : Simply returns True if the string length is 0 _
+ ======================================================================================
+Public Property Get IsNull() As Boolean
+    'This is intended for readability, since you can obviously just check Length = 0
+    Let IsNull = (My_Length = 0)
+End Property
+
 'Join : Appends another bluString to the end of this one _
  ======================================================================================
-'InputString| Another bluString instance to take text from
-'Returns    | This class object (method chaining)
+'InputString    | Another bluString instance to take text from
+'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function Join( _
     ByRef InputString As bluString _
@@ -730,7 +760,7 @@ End Function
 
 'LCase : Convert our string to lowercase _
  ======================================================================================
-'Returns    | This class object (method chaining)
+'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function LCase() As bluString
     'Allow method chaining
@@ -744,45 +774,49 @@ Public Function LCase() As bluString
          user's current locale, so we don't need to manually fetch the locale name
         Call api_LCMapStringEx( _
             0&, LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
-            UnsafePointer, My_Length * 2, _
-            UnsafePointer, My_Length * 2, _
+            UnsafePointer, My_LengthB, _
+            UnsafePointer, My_LengthB, _
             0&, 0&, 0& _
         )
     Else
         'Use the Windows XP compatible API
         Call api_LCMapString( _
             api_GetThreadLocale(), LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
-            UnsafePointer, My_Length * 2, _
-            UnsafePointer, My_Length * 2 _
+            UnsafePointer, My_LengthB, _
+            UnsafePointer, My_LengthB _
         )
     End If
 End Function
 
 'Left : Cut the string short to a given number of characters _
  ======================================================================================
+'Length         | Number of characters to keep of the string. If negative, this will _
+                | be calculated backwards from the end of the string
+'Returns        | This class object (method chaining)
+'======================================================================================
 Public Function Left( _
-    ByRef NumberOfCharacters As Long _
+    ByRef Length As Long _
 ) As bluString
     'Allow method chaining
     Set Left = Me
     
     'Shortcut if trimming to zero
-    If NumberOfCharacters = 0 Then Call Me.Clear: Exit Function
+    If Length = 0 Then Call Me.Clear: Exit Function
     'Trimming to the same length does nothing!
-    If NumberOfCharacters = My_Length Then Exit Function
+    If Length = My_Length Then Exit Function
     'You can't increase the length with this!
-    If NumberOfCharacters > My_Length Then Err.Raise (9): Exit Function
+    If Length > My_Length Then Err.Raise (9): Exit Function
     
     'If the position is negative, work out 'x' number of characters before the end of _
      our string. That is, -1 will be the second to last character
-    If NumberOfCharacters < 0 Then
+    If Length < 0 Then
         'The negative position cannot be more than the length of our string
-        If Abs(NumberOfCharacters) > My_Length Then Err.Raise (9): Exit Function
+        If Abs(Length) > My_Length Then Err.Raise (9): Exit Function
         'Calculate the new position from the end of our string
-        Let Me.Length = My_Length + NumberOfCharacters
+        Let Me.Length = My_Length + Length
     Else
         'Do the reduction
-        Let Me.Length = NumberOfCharacters
+        Let Me.Length = Length
     End If
 End Function
 
@@ -799,7 +833,7 @@ Public Property Let Length( _
     If NewLength > BUFFER_MAX Then Err.Raise (6): Exit Property
 
     'Store the new desired content length (1-based)
-    Let My_Length = NewLength
+    Let My_Length = NewLength: Let My_LengthB = My_Length * 2
     'If the buffer has not been initialised, start with the default length
     If My_Buffer = 0 Then Let My_Buffer = DEFAULT_BUFFER
     
@@ -830,23 +864,52 @@ TestBuffer:
     Let Data(My_Length) = 0
 End Property
 
-''Mid : Reduce the string to a sub-string portion _
-' ======================================================================================
-'Public Function Mid() As bluString
-'    'Allow method chaining
-'    Set Mid = Me
-'    'TODO
-'End Function
+'Mid : Reduce the string to a sub-string portion _
+ ======================================================================================
+'Index          | Position within string (0-based). Can be negative, in which case _
+                | the Index is calculated from the end of the string working backwards
+'[Length]       | Number of characters to keep, can be 0 which will imply the _
+                | remainder of the string, from the Index
+'Returns        | This class object (method chaining)
+'======================================================================================
+Public Function Mid( _
+             ByVal Index As Long, _
+    Optional ByVal Length As Long = 0 _
+) As bluString
+    'Allow method chaining
+    Set Mid = Me
+    
+    'Check the character index is within range, _
+     a negative Index will work backwards from the end of the string
+    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
+    'Desired length cannot be negative
+    If Length < 0 Then Err.Raise (9): Exit Function
+    'The optional length parameter defaults to zero, _
+     representative of the full string
+    If Length = 0 Then Let Length = My_Length - Index
+    'The length cannot be longer than the remainder of the string
+    If (My_Length - Index - Length) < 0 Then Err.Raise (9): Exit Function
+    
+    'Copy the sub-string to the beginning of our string
+    Call UnsafeCopy(Index, 0, Length)
+    'Reduce the string to the new sub-string length
+    Let Me.Length = Length
+End Function
 
 ''Normalize : Fix inconsistent use of Unicode encoding _
 ' ======================================================================================
 'Public Function Normalize() As bluString
 '    'Allow method chaining
 '    Set Normalize = Me
+'   'NOTE: Vista+ only _
+     http://msdn.microsoft.com/en-gb/library/windows/desktop/dd319093(v=vs.85).aspx
 'End Function
 
 'Pointer : Allow access to the "string" pointer for external copying _
  ======================================================================================
+'[Index]        | Position within our string (0-based)
+'Returns        | Memory pointer to the character index within our string
+'======================================================================================
 Public Property Get Pointer( _
     Optional ByVal Index As Long = 0 _
 ) As Long
@@ -862,6 +925,9 @@ End Property
 
 'Prepend : Add our string to the end of the one provided _
  ======================================================================================
+'Text           | VB String to prepend to our string
+'Returns        | This class object (method chaining)
+'======================================================================================
 'And no, "prefix" is not the right word for this!
 Public Function Prepend( _
     ByRef Text As String _
@@ -894,7 +960,7 @@ End Function
 
 'ReduceBuffer : Free some memory by reducing the buffer to the string length _
  ======================================================================================
-'Returns    | This class object (method chaining)
+'Returns        | This class object (method chaining)
 '======================================================================================
 'Of course you could just use `bluString.Buffer = bluString.Length`, but this is _
  intended to be more obvious and safer for potential future changes / expansion.
@@ -908,14 +974,14 @@ End Function
 
 'Remove : Cut some text out of the middle of the existing string _
  ======================================================================================
-'Index      | Position within our string (0-based). Can be negative, in which case _
-            | the Index is calculated from the end of the string working backwards
-'[Length]   | Number of characters to remove, 0 = remainder of string from Index
-'Returns    | This class object (method chaining)
+'Index          | Position within our string (0-based). Can be negative, in which case _
+                | the Index is calculated from the end of the string working backwards
+'[Length]       | Number of characters to remove, 0 = remainder of string from Index
+'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function Remove( _
              ByVal Index As Long, _
-    Optional ByRef Length As Long = 0 _
+    Optional ByVal Length As Long = 0 _
 ) As bluString
     'Allow method chaining
     Set Remove = Me
@@ -931,7 +997,7 @@ Public Function Remove( _
     If Length < 0 Then Err.Raise (9): Exit Function
     'The optional length parameter defaults to zero, _
      representative of the full string
-    If Length = 0 Then Length = My_Length - Index
+    If Length = 0 Then Let Length = My_Length - Index
     'The length cannot be longer than the remainder of the string
     If My_Length - Index - Length < 0 Then Err.Raise (9): Exit Function
     
@@ -941,21 +1007,96 @@ Public Function Remove( _
     Let Me.Length = My_Length - Length
 End Function
 
-''Replace : Search for a sub-string and replace it with another _
-' ======================================================================================
-'Public Function Replace( _
-'    ByRef SearchFor As String, _
-'    ByRef ReplaceWith As String _
-') As bluString
-'    'Allow method chaining
-'    Set Replace = Me
-'    'TODO
-'End Function
+'Replace : Search for a sub-string and replace it with another _
+ ======================================================================================
+'SearchFor      | Text to find within our string
+'[ReplaceWith]  | What to replace the found text with, can be null-string
+'[ReturnCount]  | If provided, your own variable will be set with the number of _
+                | replacements done
+'Returns        | This class object (method chaining)
+'======================================================================================
+Public Function Replace( _
+             ByRef SearchFor As String, _
+    Optional ByRef ReplaceWith As String = vbNullString, _
+    Optional ByRef ReturnCount As Long = 0 _
+) As bluString
+    'Allow method chaining
+    Set Replace = Me
+    'Ensure that the count will return 0 if nothing is found
+    Let ReturnCount = 0
+    
+    'You can't search in a null string
+    If My_Length = 0 Then Exit Function
+    'What you're searching for cannot be longer than our string
+    If Len(SearchFor) > My_Length Then Exit Function
+    
+    'If the replacement string is shorter than the search string, then we'll need _
+     to remove parts of our string and vice-versa. Work out the impact the _
+     replacement will have on the length of our string
+    Dim Difference As Long
+    Let Difference = Len(ReplaceWith) - Len(SearchFor)
+    
+    'The API returns a pointer in the string, not an index, _
+     we'll use this to start searching from where we left off!
+    Dim StartPointer As Long
+    Let StartPointer = UnsafePointer()
+    
+    'Some caches before we start looping
+    Dim StrPtr_SearchFor As Long:   Let StrPtr_SearchFor = StrPtr(SearchFor)
+    Dim StrPtr_ReplaceWith As Long: Let StrPtr_ReplaceWith = StrPtr(ReplaceWith)
+    Dim LenB_SearchFor As Long:     Let LenB_SearchFor = LenB(SearchFor)
+    Dim LenB_ReplaceWith As Long:   Let LenB_ReplaceWith = LenB(ReplaceWith)
+    Dim LastPointer As Long:        Let LastPointer = UnsafePointer() + My_LengthB
+    
+Continue:
+    'Search for the sub-string
+    Dim ResultPointer As Long
+    Let ResultPointer = api_StrStr(StartPointer, StrPtr_SearchFor)
+    
+    'If the returned pointer is null, the sub-string was not found
+    If ResultPointer = 0 Then Exit Function
+    
+    'If both the search string and the replacement are the same length, _
+     we don't need to move parts of our string about
+    If Difference = 0 Then
+        'Replace the found string
+        Call api_RtlMoveMemory( _
+            ResultPointer, StrPtr_ReplaceWith, LenB_ReplaceWith _
+        )
+    Else
+        'If the replacement string is longer than the search string, _
+         our string will get longer overall
+        If Difference > 0 Then Let Me.Length = My_Length + Difference
+        
+        'Calculate the remainder portion of our string that will be moved
+        Dim Remainder As Long
+        Let Remainder = LastPointer - (StartPointer + LenB_SearchFor)
+        
+        'Shift up or down the remainder portion of our string
+        Call api_RtlMoveMemory( _
+            ResultPointer + LenB_ReplaceWith, _
+            ResultPointer + LenB_SearchFor, _
+            Remainder _
+        )
+        'If the replacement string is shorter than the search string, _
+         our string will get shorter overall
+        If Difference < 0 Then Let Me.Length = My_Length + Difference
+        
+        'Copy the replacement string in
+        Call api_RtlMoveMemory( _
+            ResultPointer, StrPtr_ReplaceWith, LenB_ReplaceWith _
+        )
+    End If
+    
+    'We don't want an infinite loop, so move our search pointer over the replacement
+    Let StartPointer = StartPointer + LenB_ReplaceWith
+    GoTo Continue
+End Function
 
 'Right : Keep only the given right-most number of characters _
  ======================================================================================
-'Length     | Number of characters to keep working backwards from the right
-'Returns    | This class object (method chaining)
+'Length         | Number of characters to keep working backwards from the right
+'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function Right( _
     ByRef Length As Long _
@@ -979,6 +1120,12 @@ Public Function Right( _
     Let Me.Length = Length
 End Function
 
+'Search : Find a string within our string _
+ ======================================================================================
+'Public Function Search() As Long
+'    '
+'End Function
+
 'Text : Get/Let the contents as native VB strings _
  ======================================================================================
 Public Property Get Text() As String
@@ -994,7 +1141,7 @@ Public Property Get Text() As String
             Let .cElements = LenB(Text)
         End With
         'Copy our String into the return field
-        Call api_RtlMoveMemory(VarPtr(CastStrArr(0)), UnsafePointer, My_Length * 2)
+        Call api_RtlMoveMemory(VarPtr(CastStrArr(0)), UnsafePointer, My_LengthB)
     End If
 End Property
 '--------------------------------------------------------------------------------------
@@ -1038,7 +1185,7 @@ End Property
 
 'UCase : Convert our string to UPPERCASE _
  ======================================================================================
-'Returns    | This class object (method chaining)
+'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function UCase() As bluString
     'Allow method chaining
@@ -1052,16 +1199,16 @@ Public Function UCase() As bluString
          user's current locale, so we don't need to manually fetch the locale name
         Call api_LCMapStringEx( _
             0&, LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
-            UnsafePointer, My_Length * 2, _
-            UnsafePointer, My_Length * 2, _
+            UnsafePointer, My_LengthB, _
+            UnsafePointer, My_LengthB, _
             0&, 0&, 0& _
         )
     Else
         'Use the Windows XP compatible API
         Call api_LCMapString( _
             api_GetThreadLocale(), LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
-            UnsafePointer, My_Length * 2, _
-            UnsafePointer, My_Length * 2 _
+            UnsafePointer, My_LengthB, _
+            UnsafePointer, My_LengthB _
         )
     End If
 End Function
@@ -1080,8 +1227,8 @@ End Function
 
 'UnsafePointer : Gets a pointer to the string, without validation -- internal use _
  ======================================================================================
-'[Index]    | Position within our string (0-based)
-'Returns    | Memory pointer to the character index within our string
+'[Index]        | Position within our string (0-based)
+'Returns        | Memory pointer to the character index within our string
 '======================================================================================
 Private Property Get UnsafePointer( _
     Optional ByRef Index As Long = 0 _
@@ -1092,9 +1239,9 @@ End Property
 
 'UnsafeCopy : Move a portion of our string to another place in our string _
  ======================================================================================
-'IndexFrom  | Position within string (0-based) to begin copying from
-'IndexTo    | As above, but where to copy to
-'Length     | Number of characters (not Bytes) to copy
+'IndexFrom      | Position within string (0-based) to begin copying from
+'IndexTo        | As above, but where to copy to
+'Length         | Number of characters (not Bytes) to copy
 '======================================================================================
 Private Sub UnsafeCopy( _
     ByRef IndexFrom As Long, _
@@ -1108,8 +1255,8 @@ End Sub
 
 'UnsafeCopyString : Copies a VB String into our string _
  ======================================================================================
-'Text       | VB String to copy into our string
-'Index      | Position within our string (0-based) to begin copying
+'Text           | VB String to copy into our string
+'Index          | Position within our string (0-based) to begin copying
 '======================================================================================
 Private Sub UnsafeCopyString( _
     ByRef Text As String, _
@@ -1124,9 +1271,9 @@ End Sub
 
 'ValidateChar : Validates a Unicode character code _
  ======================================================================================
-'Char       | A Unicode character code (0 to 65535) or a negative number representing _
-            | the signed-Integer equivilent of character codes 32768 to 65535
-'Returns    | False for an invalid Char, True for a valid one
+'Char           | A Unicode character code (0 to 65535) or a negative number _
+                | representing the signed-Integer equivilent of codes 32768 to 65535
+'Returns        | False for an invalid Char, True for a valid one
 '======================================================================================
 Private Function ValidateChar( _
     ByRef Char As Long _
@@ -1146,8 +1293,8 @@ End Function
 
 'ValidateIndex : Validates an index for the string _
  ======================================================================================
-'Index      | Position within string (0-based)
-'Returns    | False for an invalid Index, True for a valid one
+'Index          | Position within string (0-based)
+'Returns        | False for an invalid Index, True for a valid one
 '======================================================================================
 Private Function ValidateIndex( _
     ByRef Index As Long _
@@ -1162,9 +1309,9 @@ End Function
 
 'ValidateIndexAllowNegative : A negative index gives 'x' number of chars from the end _
  ======================================================================================
-'Index      | Position within string (0-based). Can be negative, in which case the _
-            | Index is updated to be from the end of the string working backwards
-'Returns    | False for an invalid Index, True for a valid one
+'Index          | Position within string (0-based). Can be negative, in which case the _
+                | Index is updated to be from the end of the string working backwards
+'Returns        | False for an invalid Index, True for a valid one
 '======================================================================================
 Private Function ValidateIndexAllowNegative( _
     ByRef Index As Long _

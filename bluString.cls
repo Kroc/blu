@@ -19,6 +19,12 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluString
 
+'Dependencies       None (self-contained)
+'Last Updated       14-NOV-14
+'Last Update        Added `Format` method. Improved validation
+
+'--------------------------------------------------------------------------------------
+
 'A replacement for VB6's terribly slow String handling of any kind. _
  A buffer is used to minimise the number of times the reserved memory has to be _
  expanded and methods for most of VB6's String functions are provided to work _
@@ -319,6 +325,10 @@ Public Enum BUFFER_SIZE
      'for growth for most string handling and not too memory intensive (256 bytes)
     DEFAULT_BUFFER = BUFFER_128
 End Enum
+
+'The marker used for formatting strings. As a constant here, it saves VB allocating _
+ and deallocating a temporary String everytime we mention it
+Private Const FORMAT_MARKER = "$$"
 
 '/// EVENTS ///////////////////////////////////////////////////////////////////////////
 
@@ -623,19 +633,14 @@ Public Function Clone( _
     Optional ByVal Index As Long = 0, _
     Optional ByVal Length As Long = 0 _
 ) As bluString
-    'Check the character index is within range, _
-     a negative Index will work backwards from the end of the string
-    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
-    'Desired length cannot be negative
-    If Length < 0 Then Err.Raise (9): Exit Function
-    'The optional length parameter defaults to zero, _
-     representative of the full string
-    If Length = 0 Then Let Length = My_Length - Index
-    'The length cannot be longer than the remainder of the string
-    If (My_Length - Index - Length) < 0 Then Err.Raise (9): Exit Function
-    
     'Instantiate the return object
     Set Clone = New bluString
+    
+    'Validate the range: _
+     * A negative Index will be recalculated backwards from the end of the string _
+     * A Length of zero will default to the remainder of the string, from the Index
+    If Not ValidateRange(Index, Length) Then Err.Raise (9): Exit Function
+    
     'Set the destination size
     Let Clone.Length = Length
     'Copy the text across (if there is any)
@@ -647,7 +652,7 @@ End Function
 'Equals : A fast method to check if one string equals another _
  ======================================================================================
 'Text           | VB String to compare our string against
-'CompareMethod  | Whether to use case-sensitive or case-insensitive comparison
+'[CompareMethod]| Whether to use case-sensitive or case-insensitive comparison
 'Returns        | True if strings are equal, False if not
 '======================================================================================
 Public Function Equals( _
@@ -671,7 +676,7 @@ Public Function Equals( _
     'Check for Windows Vista and above:
     If WindowsVersion >= 6 Then
         'NOTE: The use of null on the first parameter causes Windows to use the _
-         user 's current locale, so we don't need to manually fetch the locale name
+         user's current locale, so we don't need to manually fetch the locale name
         Let Equals = (api_CompareStringEx( _
             0&, Flags, _
             StrPtr(Text), -1, _
@@ -707,9 +712,9 @@ Public Function Format( _
     If Last < First Then Exit Function
     
     'For non-String parameters, we will do the String conversion, but we will need _
-     somewhere to store them so that we can get at their pointer
+     somewhere to store them so that we can get at their pointers
     'There are APIs for doing String conversion <vbforums.com/showthread.php?736407> _
-     but CStr is probably using this behind the scenes anyway. Also, rolling your _
+     but `CStr` is probably already using this behind the scenes. Also, rolling your _
      own String conversion is actually super difficult _
      <serpentine.com/blog/2011/06/29/here-be-dragons>
     Dim Strings() As String
@@ -718,6 +723,9 @@ Public Function Format( _
      existing pointer (for example, working with bluStrings)
     Dim Pointers() As Long
     ReDim Pointers(First To Last) As Long
+    'And lastly, we'll need to know how long each replacement String is
+    Dim Lengths() As Long
+    ReDim Lengths(First To Last) As Long
     
     'Walk the params provided
     Dim Index As Long
@@ -731,19 +739,24 @@ Public Function Format( _
                 'We don't want to duplicate existing Strings, we just need the _
                  existing pointers. (`StrPtr` will peek correctly into the Variant)
                  Let Pointers(Index) = StrPtr(Params(Index))
+                 Let Lengths(Index) = Len(Params(Index))
                  
             Case vbObject
                 'If this is a bluString, use its string without cloning it. For _
                  other objects, we can't cast to String. Raise "Type Mismatch" error
-                If TypeOf Param Is bluString _
-                    Then Let Pointers(Index) = Param.Pointer _
-                    Else Err.Raise (13): GoTo Finish
+                If TypeOf Params(Index) Is bluString Then
+                    Let Pointers(Index) = Params(Index).Pointer
+                    Let Lengths(Index) = Params(Index).Length
+                Else
+                    Err.Raise (13): GoTo Finish
+                End If
             
             'These types can be converted to a String
             Case vbBoolean, vbByte, vbCurrency, vbDate, vbDecimal, vbDouble, _
                  vbEmpty, vbError, vbInteger, vbLong, vbSingle
                 Let Strings(Index) = CStr(Params(Index))
                 Let Pointers(Index) = StrPtr(Strings(Index))
+                Let Lengths(Index) = Len(Strings(Index))
                 
             Case Else
                 'All other data types can't be co-erced
@@ -753,12 +766,78 @@ Public Function Format( _
     
     '----------------------------------------------------------------------------------
     
-    'TODO: Manual search and replace (using pointers)
+    'Speed up references to the format marker we'll be searching for
+    Dim MarkerLength As Long:   Let MarkerLength = Len(FORMAT_MARKER)
+    Dim MarkerPointer As Long:  Let MarkerPointer = StrPtr(FORMAT_MARKER)
+    
+    'Start again with the first argument; as we find each marker, we'll move to the _
+     next argument. It's possible there will be too many or too few markers
+    Let Index = First
+    
+    'The API returns a pointer in the string, not an index, _
+     we'll use this to start searching from where we left off!
+    Dim StartPointer As Long
+    Let StartPointer = Format.Pointer()
+    
+Continue:
+    'If the replacement string is shorter than the marker, then we'll need _
+     to remove parts of our string and vice-versa. Work out the impact the _
+     replacement will have on the length of our string
+    Dim Difference As Long
+    Let Difference = Lengths(Index) - MarkerLength
+    
+    'Search for the format marker
+    Dim ResultPointer As Long
+    Let ResultPointer = api_StrStr(StartPointer, MarkerPointer)
+    
+    'If the returned pointer is null, the marker was not found
+    If ResultPointer = 0 Then GoTo Finish
+    
+    'If both the marker and the replacement are the same length, _
+     we don't need to move parts of the string about
+    If Difference = 0 Then
+        'Replace the marker
+        Call api_RtlMoveMemory( _
+            ResultPointer, Pointers(Index), Lengths(Index) * 2 _
+        )
+    Else
+        'Calculate the remainder portion of our string that will be moved
+        Dim Remainder As Long
+        Let Remainder = (Format.Pointer() + (Format.Length * 2)) - ( _
+            StartPointer + (MarkerLength * 2) _
+        )
+        
+        'If the replacement string is longer than the search string, _
+         our string will get longer overall
+        If Difference > 0 Then Let Format.Length = Format.Length + Difference
+        
+        'Shift up or down the remainder portion of our string
+        Call api_RtlMoveMemory( _
+            ResultPointer + (Lengths(Index) * 2), _
+            ResultPointer + (MarkerLength * 2), _
+            Remainder _
+        )
+        'If the replacement string is shorter than the search string, _
+         our string will get shorter overall
+        If Difference < 0 Then Let Format.Length = Format.Length + Difference
+        
+        'Copy the replacement string in
+        Call api_RtlMoveMemory( _
+            ResultPointer, Pointers(Index), Lengths(Index) * 2 _
+        )
+    End If
+    
+    'We don't want an infinite loop, so move our search pointer over the replacement
+    Let StartPointer = StartPointer + Lengths(Index) * 2
+    'Move onto the next parameter
+    Let Index = Index + 1: If Index > Last Then GoTo Finish
+    'Proceed with the next search
+    GoTo Continue
     
     '----------------------------------------------------------------------------------
 Finish:
     'And clean up
-    Erase Strings, Pointers
+    Erase Strings, Pointers, Lengths
 End Function
 
 'Insert : Insert some text in the middle of the existing string _
@@ -801,24 +880,24 @@ End Property
 
 'Join : Appends another bluString to the end of this one _
  ======================================================================================
-'InputString    | Another bluString instance to take text from
+'bluStringObj   | Another bluString instance to take text from
 'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function Join( _
-    ByRef InputString As bluString _
+    ByRef bluStringObj As bluString _
 ) As bluString
     'Allow method chaining
     Set Join = Me
     'Appending a null-string will do nothing
-    If InputString.Length = 0 Then Exit Function
+    If bluStringObj.Length = 0 Then Exit Function
     
     'The current length will be the starting position of the appended string
     Dim Start As Long: Let Start = My_Length
     'Increase the length accordingly
-    Let Me.Length = My_Length + InputString.Length
+    Let Me.Length = My_Length + bluStringObj.Length
     'Copy the new string in
     Call api_RtlMoveMemory( _
-        UnsafePointer(Start), InputString.Pointer, InputString.Length * 2 _
+        UnsafePointer(Start), bluStringObj.Pointer, bluStringObj.Length * 2 _
     )
 End Function
 
@@ -943,16 +1022,10 @@ Public Function Mid( _
     'Allow method chaining
     Set Mid = Me
     
-    'Check the character index is within range, _
-     a negative Index will work backwards from the end of the string
-    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
-    'Desired length cannot be negative
-    If Length < 0 Then Err.Raise (9): Exit Function
-    'The optional length parameter defaults to zero, _
-     representative of the full string
-    If Length = 0 Then Let Length = My_Length - Index
-    'The length cannot be longer than the remainder of the string
-    If (My_Length - Index - Length) < 0 Then Err.Raise (9): Exit Function
+    'Validate the range: _
+     * A negative Index will be recalculated backwards from the end of the string _
+     * A Length of zero will default to the remainder of the string, from the Index
+    If Not ValidateRange(Index, Length) Then Err.Raise (9): Exit Function
     
     'Copy the sub-string to the beginning of our string
     Call UnsafeCopy(Index, 0, Length)
@@ -1050,20 +1123,13 @@ Public Function Remove( _
     'Allow method chaining
     Set Remove = Me
     
-    'Check the character index is within range, _
-     a negative Index will work backwards from the end of the string
-    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
+    'Validate the range: _
+     * A negative Index will be recalculated backwards from the end of the string _
+     * A Length of zero will default to the remainder of the string, from the Index
+    If Not ValidateRange(Index, Length) Then Err.Raise (9): Exit Function
     
     'If you end up removing the whole string, make it a null-string
     If (Index = 0) And (Length = My_Length - 1) Then Call Me.Clear: Exit Function
-    
-    'Desired length cannot be negative
-    If Length < 0 Then Err.Raise (9): Exit Function
-    'The optional length parameter defaults to zero, _
-     representative of the full string
-    If Length = 0 Then Let Length = My_Length - Index
-    'The length cannot be longer than the remainder of the string
-    If My_Length - Index - Length < 0 Then Err.Raise (9): Exit Function
     
     'Shift the remainder down into the removed area
     Call UnsafeCopy(Index + Length, Index, Length)
@@ -1110,7 +1176,6 @@ Public Function Replace( _
     Dim StrPtr_ReplaceWith As Long: Let StrPtr_ReplaceWith = StrPtr(ReplaceWith)
     Dim LenB_SearchFor As Long:     Let LenB_SearchFor = LenB(SearchFor)
     Dim LenB_ReplaceWith As Long:   Let LenB_ReplaceWith = LenB(ReplaceWith)
-    Dim LastPointer As Long:        Let LastPointer = UnsafePointer() + My_LengthB
     
 Continue:
     'Search for the sub-string
@@ -1128,13 +1193,15 @@ Continue:
             ResultPointer, StrPtr_ReplaceWith, LenB_ReplaceWith _
         )
     Else
+        'Calculate the remainder portion of our string that will be moved
+        Dim Remainder As Long
+        Let Remainder = (UnsafePointer() + My_LengthB) - ( _
+            StartPointer + LenB_SearchFor _
+        )
+        
         'If the replacement string is longer than the search string, _
          our string will get longer overall
         If Difference > 0 Then Let Me.Length = My_Length + Difference
-        
-        'Calculate the remainder portion of our string that will be moved
-        Dim Remainder As Long
-        Let Remainder = LastPointer - (StartPointer + LenB_SearchFor)
         
         'Shift up or down the remainder portion of our string
         Call api_RtlMoveMemory( _
@@ -1392,5 +1459,30 @@ Private Function ValidateIndexAllowNegative( _
         'Index cannot be beyond the end of the string _
         (note that the index is 0-based and the length is 1-based)
         If (Index < My_Length) Then Let ValidateIndexAllowNegative = True
+    End If
+End Function
+
+'ValidateRange : Validate an Index and Length fit within our string _
+ ======================================================================================
+'Index          | Position within our string (0-based). Can be negative, in which case _
+                | the Index is calculated from the end of the string working backwards
+'Length         | Length of the string portion, 0 = remainder of string from Index
+'Returns        | True if the range is valid (within our string), otherwise False
+'======================================================================================
+Private Function ValidateRange( _
+    ByRef Index As Long, _
+    ByRef Length As Long _
+) As Boolean
+    'Validate the Index (and convert negatives)
+    If ValidateIndexAllowNegative(Index) Then
+        'If Length is zero, then calculate the remainder of the string
+        If Length = 0 Then Let Length = My_Length - Index
+        'Length cannot be negative
+        If Length >= 0 Then
+            'The Length must not be longer than the remainder of the string
+            If (My_Length - Index - Length) >= 0 Then
+                Let ValidateRange = True
+            End If
+        End If
     End If
 End Function

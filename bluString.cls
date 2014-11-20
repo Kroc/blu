@@ -42,6 +42,12 @@ Option Explicit
     
 ' * Ridiculously fast! _
     Half a million string comparisons per second? No problem
+    
+'--------------------------------------------------------------------------------------
+
+'The CRC function of this class is from "Calculating CRC32 With VB" by Steve McMahon _
+ <www.vbaccelerator.com/home/VB/Code/Libraries/CRC32/article.asp> which was _
+ derived from from the VB.NET CRC32 algorithm by Paul Caton
 
 '/// API //////////////////////////////////////////////////////////////////////////////
 
@@ -282,8 +288,8 @@ Private Declare Function api_StrStrI Lib "shlwapi" Alias "StrStrIW" ( _
 
 '/// CLASS STORAGE ////////////////////////////////////////////////////////////////////
 
-'We'll cache the Windows version here as it's very slow to do this every time we _
- call methods that use alternative APIs for Vista+
+'We'll cache the Windows version here as it's very slow to do this every time _
+ we call methods that use alternative APIs for Vista+
 Private WindowsVersion As Single
 
 'This is where we'll store our "string" as an array of Unicode (UCS-2) points
@@ -329,6 +335,21 @@ End Enum
 'The marker used for formatting strings. As a constant here, it saves VB allocating _
  and deallocating a temporary String everytime we mention it
 Private Const FORMAT_MARKER = "$$"
+
+'This is the official polynomial used by CRC32 in PKZip. _
+ Often the polynomial is shown reversed (04C11DB7)
+Const CRC_POLYNOMIAL As Long = &HEDB88320
+
+'A lookup table needs to be built for calculating the CRC, but we will delay this _
+ until needed as it takes time and adds 1 KB to the memory usage
+Private CRCTable() As Long
+Private CRCInitialized As Long
+
+'The calculated CRC is cached here, we don't want to have to do the calculation every _
+ time the property is accessed (as long as the string hasn't changed)
+Private My_CRC As Long
+'A flag to mark when the string has changed and the CRC is no longer valid
+Private CRCValid As Long
 
 '/// EVENTS ///////////////////////////////////////////////////////////////////////////
 
@@ -378,7 +399,7 @@ End Sub
  ======================================================================================
 Private Sub Class_Terminate()
     'Free up the reserved memory
-    Erase Data
+    Erase Data, CRCTable
     
     'Clean up our array hacking (for casting a String to an array) _
      otherwise VB will crash when it frees up the memory
@@ -402,7 +423,8 @@ Public Function Append( _
     
     'The current length will be the starting position of the appended string
     Dim Start As Long: Let Start = My_Length
-    'Increase the length accordingly
+    'Increase the length accordingly _
+     (this will also invalidate the cached CRC)
     Let Me.Length = My_Length + Len(Text)
     'Copy the new string in
     Call UnsafeCopyString(Text, Start)
@@ -431,6 +453,8 @@ Public Property Let Buffer( _
     If My_Buffer < My_Length Then
         Let My_Length = My_Buffer
         Let My_LengthB = My_Length * 2
+        'Changes to our string will invalidate the CRC
+        Let CRCValid = 0
     End If
     'Resize the data store. Note that though `My_Buffer` is 1-based we abuse this _
      to provide room for a null-terminator at the end of the string
@@ -483,6 +507,9 @@ Public Property Let Char( _
     If Char >= 32768 _
         Then Let Data(Index) = (Char And &HFFFF&) - 65536 _
         Else Let Data(Index) = (Char And &HFFFF&)
+    
+    'Changes to our string will invalidate the CRC
+    Let CRCValid = 0
 End Property
 
 'CharInsert : Inserts a single Unicode character code _
@@ -506,7 +533,8 @@ Public Function CharInsert( _
      signed-Integer, so this is converted to the positive equivilent
     If Not ValidateChar(Char) Then Err.Raise (9): Exit Function
     
-    'Increase the string length by 1 to make room
+    'Increase the string length by 1 to make room _
+     (this will also invalidate the cached CRC)
     Let Me.Length = My_Length + 1
     'Shift the upper portion of our string up
     Call UnsafeCopy(Index, Index + 1, My_Length - Index - 1)
@@ -516,6 +544,40 @@ Public Function CharInsert( _
         Then Let Data(Index) = (Char And &HFFFF&) - 65536 _
         Else Let Data(Index) = (Char And &HFFFF&)
 End Function
+
+'CharIsAlpha _
+ ======================================================================================
+'Returns        | True if the character is alpha (a-z, but also non-latin characters)
+'======================================================================================
+Public Property Get CharIsAlpha( _
+    ByVal Index As Long _
+) As Boolean
+    'Note that this uses Unicode properties, so covers far more than just a-z, _
+     including accented letters and non-latin alpha letters such as "ß"
+    Let CharIsAlpha = (Me.CharProperties(Index) And C1_ALPHA) <> 0
+End Property
+
+'CharIsLower _
+ ======================================================================================
+'Returns        | True if the character is lower-case
+'======================================================================================
+Public Property Get CharIsLower( _
+    ByVal Index As Long _
+) As Boolean
+    'Note that this uses Unicode properties, so covers far more than just A-Z
+    Let CharIsLower = (Me.CharProperties(Index) And C1_LOWER) <> 0
+End Property
+
+'CharIsUpper _
+ ======================================================================================
+'Returns        | True if the character is upper-case
+'======================================================================================
+Public Property Get CharIsUpper( _
+    ByVal Index As Long _
+) As Boolean
+    'Note that this uses Unicode properties, so covers far more than just A-Z
+    Let CharIsUpper = (Me.CharProperties(Index) And C1_UPPER) <> 0
+End Property
 
 'CharProperties : Returns the Unicode properties for a character in the string _
  ======================================================================================
@@ -547,7 +609,8 @@ Public Function CharPull() As Long
     'Return the character value in question _
      The user can use `And &HFF&` to get ASCII
     Let CharPull = (Data(My_Length - 1) And &HFFFF&)
-    'Reduce the size of the string
+    'Reduce the size of the string _
+     (this will also invalidate the cached CRC)
     Let Me.Length = My_Length - 1
 End Function
 
@@ -566,7 +629,8 @@ Public Function CharPush( _
     If Not ValidateChar(Char) Then Err.Raise (9): Exit Function
     
     'Increase the length of our string by one character _
-     (the buffer will manage any necessary growth)
+     (the buffer will manage any necessary growth. _
+      this will also invalidate the cached CRC)
     Let Me.Length = My_Length + 1
     'Set the character code of the last character
     'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
@@ -592,21 +656,23 @@ Public Function CharRemove( _
     'Return the character value
     Let CharRemove = Data(Index)
     
-    'If removing just the last character, simply shorten the string
-    If Index = My_Length - 1 Then
-        Let Me.Length = My_Length - 1
-    Else
+    'If removing just the last character, we won't need to shift the data down
+    If Index < (My_Length - 1) Then
         'Shift the remainder of the string down a character
         Call UnsafeCopy(Index + 1, Index, My_Length - Index - 1)
-        'Reduce the overal length of the string by one
-        Let Me.Length = My_Length - 1
     End If
+    
+    'Reduce the overal length of the string by one _
+     (this will also invalidate the cached CRC)
+    Let Me.Length = My_Length - 1
 End Function
 
 'Clear : Wipe the stored string, fill the buffer with nulls _
  ======================================================================================
 'Returns        | This class object (method chaining)
 '======================================================================================
+'Note that we clear the buffer, and not just the old string content. This is so that _
+ if the length is manually increased, junk data won't remain
 Public Function Clear() As bluString
     'Allow method chaining
     Set Clear = Me
@@ -615,9 +681,11 @@ Public Function Clear() As bluString
         'This does not change the size of the buffer, should it have increased. _
          If you intend to reuse a large string for a small string, create a new _
          bluString instance instead or call the `ReduceBuffer` method
-        Call api_RtlZeroMemory(UnsafePointer, My_LengthB)
+        Call api_RtlZeroMemory(UnsafePointer, My_Buffer)
         'Mark the string as being null-length
         Let My_Length = 0: Let My_LengthB = 0
+        'Changes to our string will invalidate the CRC
+        Let CRCValid = 0
     End If
 End Function
 
@@ -649,6 +717,81 @@ Public Function Clone( _
     )
 End Function
 
+'CRC : Do a Cyclic-Redundancy-Check on our string _
+ ======================================================================================
+'Returns        | CRC value of our string
+'======================================================================================
+Public Property Get CRC() As Long
+    Dim i As Long, Value As Long
+    
+    'Has the CRC lookup table been built?
+    If CRCInitialized = 0 Then
+        'Note that this is going to add 1 KB to the class's memory usage, _
+         and it takes time to build the lookup table, try to reuse an existing _
+         bluString to do many CRCs in quick succession
+        ReDim CRCTable(0 To 255) As Long
+        'Create the CRC look-up table _
+         (I will not pretend to understand how this works other than it goes through _
+          shifting and flipping bits, make of that what you will)
+        For i = 0 To 255
+            Let Value = i
+            Dim ii As Long
+            For ii = 8 To 1 Step -1
+                If (Value And 1) Then
+                    Let Value = ((Value And &HFFFFFFFE) \ 2&) And &H7FFFFFFF
+                    Let Value = Value Xor CRC_POLYNOMIAL
+                Else
+                    Let Value = ((Value And &HFFFFFFFE) \ 2&) And &H7FFFFFFF
+                End If
+            Next
+            Let CRCTable(i) = Value
+        Next
+        'Don't repeat this process
+        Let CRCInitialized = 1
+    End If
+    
+    'Has the CRC already been calculated?
+    If CRCValid = 0 Then
+        'Calculate the CRC by twiddling the bits
+        Let My_CRC = &HFFFFFFFF
+        For i = 0 To My_Length - 1
+            'Our string is stored as Integers, so we need to do the lower and _
+             upper bytes separately
+            Let Value = (My_CRC And &HFF) Xor (Data(i) And &HFF)
+            Let My_CRC = ((My_CRC And &HFFFFFF00) \ &H100) And 16777215
+            Let My_CRC = My_CRC Xor CRCTable(Value)
+            'And the upper byte:
+            Let Value = (My_CRC And &HFF) Xor ((Data(i) And &HFF00&) \ &H100)
+            Let My_CRC = ((My_CRC And &HFFFFFF00) \ &H100) And 16777215
+            Let My_CRC = My_CRC Xor CRCTable(Value)
+        Next
+        'Cache the calculated CRC
+        Let My_CRC = Not (My_CRC)
+        Let CRCValid = 1
+    End If
+    
+    'Return the cached value
+    Let CRC = My_CRC
+End Property
+
+'Destroy : Sets the string to null and frees all memory _
+ ======================================================================================
+'Returns        | This class object (method chaining)
+'======================================================================================
+Public Function Destroy() As bluString
+    'Allow method chaining
+    Set Destroy = Me
+    'Nullify the string
+    Let My_Length = 0: Let My_LengthB = 0
+    'Deallocate the memory
+    Erase Data
+    'Reset the buffer length so that any new content will create a new, _
+     appropriately-sized buffer
+    Let My_Buffer = 0
+    'Changes to our string will invalidate the CRC
+    Let CRCValid = 0
+End Function
+
 'Equals : A fast method to check if one string equals another _
  ======================================================================================
 'Text           | VB String to compare our string against
@@ -659,6 +802,9 @@ Public Function Equals( _
              ByRef Text As String, _
     Optional ByRef CompareMethod As VBA.VbCompareMethod = vbTextCompare _
 ) As Boolean
+    'Any length difference is immediately invalid!
+    If LenB(Text) <> My_LengthB Then Exit Function
+    
     'Handle null strings: _
      Two null strings are considered equal, otherwise result is inequal
     If My_Length = 0 Then
@@ -671,10 +817,11 @@ Public Function Equals( _
     
     'The APIs used default to binary search, with a flag for ignoring case
     Dim Flags As CompareString_Flags
-    If CompareMethod = vbTextCompare Then Let Flags = LINGUISTIC_IGNORECASE
     
     'Check for Windows Vista and above:
     If WindowsVersion >= 6 Then
+        'Windows Vista and above have more capable case-comparisons
+        If CompareMethod = vbTextCompare Then Let Flags = LINGUISTIC_IGNORECASE
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
         Let Equals = (api_CompareStringEx( _
@@ -684,6 +831,8 @@ Public Function Equals( _
             0&, 0&, 0& _
         ) = CSTR_EQUAL)
     Else
+        'This is the simpler case-comparison supported by XP
+        If CompareMethod = vbTextCompare Then Let Flags = NORM_IGNORECASE
         'Fall back to the XP-compatible API
         Let Equals = (api_CompareString( _
             api_GetThreadLocale(), Flags, _
@@ -695,7 +844,7 @@ End Function
 
 'Format : Replace markers in the text with the values provided _
  ======================================================================================
-'Arguments ...  |
+'Arguments ...  | An array of values (strings, numbers &c.) to insert
 'Returns        | A new bluString instance, formatted according to our string
 '======================================================================================
 Public Function Format( _
@@ -767,7 +916,7 @@ Public Function Format( _
     '----------------------------------------------------------------------------------
     
     'Speed up references to the format marker we'll be searching for
-    Dim MarkerLength As Long:   Let MarkerLength = Len(FORMAT_MARKER)
+    Dim MarkerLength As Long:   Let MarkerLength = LenB(FORMAT_MARKER)
     Dim MarkerPointer As Long:  Let MarkerPointer = StrPtr(FORMAT_MARKER)
     
     'Start again with the first argument; as we find each marker, we'll move to the _
@@ -784,7 +933,7 @@ Continue:
      to remove parts of our string and vice-versa. Work out the impact the _
      replacement will have on the length of our string
     Dim Difference As Long
-    Let Difference = Lengths(Index) - MarkerLength
+    Let Difference = Lengths(Index) - Len(FORMAT_MARKER)
     
     'Search for the format marker
     Dim ResultPointer As Long
@@ -804,7 +953,7 @@ Continue:
         'Calculate the remainder portion of our string that will be moved
         Dim Remainder As Long
         Let Remainder = (Format.Pointer() + (Format.Length * 2)) - ( _
-            StartPointer + (MarkerLength * 2) _
+            StartPointer + MarkerLength _
         )
         
         'If the replacement string is longer than the search string, _
@@ -814,7 +963,7 @@ Continue:
         'Shift up or down the remainder portion of our string
         Call api_RtlMoveMemory( _
             ResultPointer + (Lengths(Index) * 2), _
-            ResultPointer + (MarkerLength * 2), _
+            ResultPointer + MarkerLength, _
             Remainder _
         )
         'If the replacement string is shorter than the search string, _
@@ -861,7 +1010,8 @@ Public Function Insert( _
     If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
     
     'Increase the length of our string to fit the inserted string _
-     (the buffer will be increased automatically if necessary)
+     (the buffer will be increased automatically if necessary. _
+      this will also invalidate the cached CRC)
     Let Me.Length = My_Length + Len(Text)
     'Shift the upper portion of our string up to make room for the inserted string
     Call UnsafeCopy(Index, Index + Len(Text), My_Length - Index)
@@ -893,7 +1043,8 @@ Public Function Join( _
     
     'The current length will be the starting position of the appended string
     Dim Start As Long: Let Start = My_Length
-    'Increase the length accordingly
+    'Increase the length accordingly _
+     (this will also invalidate the cached CRC)
     Let Me.Length = My_Length + bluStringObj.Length
     'Copy the new string in
     Call api_RtlMoveMemory( _
@@ -929,6 +1080,9 @@ Public Function LCase() As bluString
             UnsafePointer, My_LengthB _
         )
     End If
+    
+    'Changes to our string will invalidate the CRC
+    Let CRCValid = 0
 End Function
 
 'Left : Cut the string short to a given number of characters _
@@ -944,7 +1098,7 @@ Public Function Left( _
     Set Left = Me
     
     'Shortcut if trimming to zero
-    If Length = 0 Then Call Me.Clear: Exit Function
+    If Length = 0 Then Call Me.Destroy: Exit Function
     'Trimming to the same length does nothing!
     If Length = My_Length Then Exit Function
     'You can't increase the length with this!
@@ -955,12 +1109,17 @@ Public Function Left( _
     If Length < 0 Then
         'The negative position cannot be more than the length of our string
         If Abs(Length) > My_Length Then Err.Raise (9): Exit Function
-        'Calculate the new position from the end of our string
+        'Calculate the new position from the end of our string _
+         (this will also invalidate the cached CRC)
         Let Me.Length = My_Length + Length
     Else
-        'Do the reduction
+        'Do the reduction _
+         (this will also invalidate the cached CRC)
         Let Me.Length = Length
     End If
+    
+    'Changes to our string will invalidate the CRC
+    Let CRCValid = 0
 End Function
 
 'Length : Length of the actual stored text (1-based), not the buffer _
@@ -969,6 +1128,9 @@ Public Property Get Length() As Long: Let Length = My_Length: End Property
 Public Property Let Length( _
     ByRef NewLength As Long _
 )
+    'A non-change in length can be skipped
+    If My_Length = NewLength Then Exit Property
+    
     'Cannot obviously set the length to a negative number
     If NewLength < 0 Then Err.Raise (9): Exit Property
     'Can't set the length greater than the maximum allowed size _
@@ -1005,6 +1167,9 @@ TestBuffer:
     'WARNING: Increasing the content-length via this property, instead of by-proxy _
      via methods such as `Append` may leave 'junk' data in the increased space!
     Let Data(My_Length) = 0
+    
+    'Changes to our string will invalidate the CRC
+    Let CRCValid = 0
 End Property
 
 'Mid : Reduce the string to a sub-string portion _
@@ -1029,7 +1194,8 @@ Public Function Mid( _
     
     'Copy the sub-string to the beginning of our string
     Call UnsafeCopy(Index, 0, Length)
-    'Reduce the string to the new sub-string length
+    'Reduce the string to the new sub-string length _
+     (this will also invalidate the cached CRC)
     Let Me.Length = Length
 End Function
 
@@ -1076,7 +1242,8 @@ Public Function Prepend( _
     
     'The length of the new String will be the new starting position of our string
     Dim Start As Long: Let Start = Len(Text)
-    'Increase the length accordingly
+    'Increase the length accordingly _
+     (this will also invalidate the cached CRC)
     Let Me.Length = My_Length + Start
     'Shift our string up
     Call UnsafeCopy(0, Start, My_Length)
@@ -1084,16 +1251,40 @@ Public Function Prepend( _
     Call UnsafeCopyString(Text, 0)
 End Function
 
-''ReadFile : Import our string from a file _
-' ======================================================================================
-'Public Function ReadFile( _
-'    ByRef FilePath As String _
-') As bluString
-'    'Allow method chaining
-'    Set ReadFile = Me
-'    'TODO
-'   'http://stackoverflow.com/questions/15809081/encoding-of-text-files-in-vb-6-0
-'End Function
+'ReadFile : Import our string from a file _
+ ======================================================================================
+'FilePath       | Path to the file to read
+'Returns        | This class object (method chaining)
+'======================================================================================
+Public Function ReadFile( _
+    ByRef FilePath As String _
+) As bluString
+    'Allow method chaining
+    Set ReadFile = Me
+    
+    Dim FileNumber As Integer
+    Let FileNumber = FreeFile
+    
+    'At the moment this is the simplest method of reading a file of unknown _
+     encoding (ASNI / UTF-16 / UTF-8 &c.), however it wastes memory as it duplicates _
+     the file in memory to do the conversion to UTF-16, and we duplicate it again _
+     to hold it in a VB6 String before copying it to our bluString. I'd like to _
+     rewrite this whole thing to read the file serially and convert-as-we-go. _
+     This is a useful reference for manually reading a file encoding: _
+     <stackoverflow.com/questions/15809081/encoding-of-text-files-in-vb-6-0>
+    Open FilePath For Input Access Read Lock Write As #FileNumber
+    Dim Source As String
+    Let Source = StrConv(InputB(LOF(FileNumber), FileNumber), vbUnicode)
+    
+    'Use our already-existing property for copying a VB6 string into ours
+    Let Me.Text = Source
+    
+Finish:
+    Close #FileNumber
+    
+    'Changes to our string will invalidate the CRC
+    Let CRCValid = 0
+End Function
 
 'ReduceBuffer : Free some memory by reducing the buffer to the string length _
  ======================================================================================
@@ -1129,12 +1320,15 @@ Public Function Remove( _
     If Not ValidateRange(Index, Length) Then Err.Raise (9): Exit Function
     
     'If you end up removing the whole string, make it a null-string
-    If (Index = 0) And (Length = My_Length - 1) Then Call Me.Clear: Exit Function
+    If (Index = 0) And (Length = My_Length - 1) Then Call Me.Destroy: Exit Function
     
     'Shift the remainder down into the removed area
     Call UnsafeCopy(Index + Length, Index, Length)
     'Update the string length
     Let Me.Length = My_Length - Length
+    
+    'Changes to our string will invalidate the CRC
+    Let CRCValid = 0
 End Function
 
 'Replace : Search for a sub-string and replace it with another _
@@ -1159,6 +1353,10 @@ Public Function Replace( _
     If My_Length = 0 Then Exit Function
     'What you're searching for cannot be longer than our string
     If Len(SearchFor) > My_Length Then Exit Function
+    
+    'Changes to our string will invalidate the CRC
+    'TODO: Check if there actually were any replacements
+    Let CRCValid = 0
     
     'If the replacement string is shorter than the search string, then we'll need _
      to remove parts of our string and vice-versa. Work out the impact the _
@@ -1240,7 +1438,7 @@ Public Function Right( _
     'Keeping all characters does nothing!
     If Length = My_Length Then Exit Function
     'Removing all characters creates a null-string!
-    If Length = 0 Then Call Me.Clear: Exit Function
+    If Length = 0 Then Call Me.Destroy: Exit Function
     'Negative numbers are not supported, just use `Left` to keep x number of chars
     If Length < 0 Then Err.Raise (9): Exit Function
     'Shift the rightmost portion of the string down the beginning
@@ -1249,13 +1447,10 @@ Public Function Right( _
      if you know the string won't expand any more you can free the memory up _
      by calling the `ReduceBuffer` method
     Let Me.Length = Length
+    
+    'Changes to our string will invalidate the CRC
+    Let CRCValid = 0
 End Function
-
-'Search : Find a string within our string _
- ======================================================================================
-'Public Function Search() As Long
-'    '
-'End Function
 
 'Text : Get/Let the contents as native VB strings _
  ======================================================================================
@@ -1280,13 +1475,19 @@ Public Property Let Text( _
     ByRef NewString As String _
 )   'If a null-string is provided then set ours to a null string
     If LenB(NewString) = 0 Then
-        Call Me.Clear
+        Call Me.Destroy
     Else
-        'Set the new length of our String. The buffer will be increased appropriately
+        'Completely free our existing string
+        Call Me.Destroy
+        'Set the new length of our string; _
+         The buffer will be allocated appropriately
         Let Me.Length = Len(NewString)
-        'Copy the String data over
+        'Copy the VB String data over
         Call api_RtlMoveMemory(UnsafePointer, StrPtr(NewString), LenB(NewString))
     End If
+    
+    'Changes to our string will invalidate the CRC
+    Let CRCValid = 0
 End Property
 
 ''Trim : Strip whitespace characters from the beginning and end _
@@ -1342,6 +1543,9 @@ Public Function UCase() As bluString
             UnsafePointer, My_LengthB _
         )
     End If
+    
+    'Changes to our string will invalidate the CRC
+    Let CRCValid = 0
 End Function
 
 ''WriteFile : Export our string to a file _

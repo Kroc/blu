@@ -20,8 +20,9 @@ Option Explicit
 'CLASS :: bluString
 
 'Dependencies       None (self-contained)
-'Last Updated       14-NOV-14
-'Last Update        Added `Format` method. Improved validation
+'Last Updated       21-NOV-14
+'Last Update        Added `CRC` method, _
+                    Removed unecessary array hacking for casting string to array
 
 '--------------------------------------------------------------------------------------
 
@@ -71,39 +72,6 @@ Private Declare Sub api_PutMem4 Lib "msvbvm60" Alias "PutMem4" ( _
     ByVal DestinationPointer As Long, _
     ByVal Value As Long _
 )
-
-'Cast String to Array: _
- --------------------------------------------------------------------------------------
-'By manipulating some pointers we can cast a VB String directly into an array without _
- having to make a copy of the string, nor waste memory on a separate array. _
- This is obviously very fast, especially for long strings
-'<vbforums.com/showthread.php?729385>
-
-'This is VB6's internal structure used for arrays _
- <msdn.microsoft.com/en-us/library/ms221482(v=vs.85).aspx>
-Private Type SAFEARRAY1D
-    cDims       As Integer              'The count of dimensions
-    fFeatures   As Integer              'Flags used by the SafeArray
-    cbElements  As Long                 'The size of an array element
-    cLocks      As Long                 'Lock count
-    pvData      As Long                 'Pointer to the data
-    cElements   As Long                 'The number of elements in the dimension
-    lLbound     As Long                 'The lower bound of the dimension
-End Type
-
-'- An array that is allocated on the stack
-Private Const FADF_AUTO      As Integer = &H1
-'- An array that may not be resized or reallocated
-Private Const FADF_FIXEDSIZE As Integer = &H10
-
-'Undocumented VB6 API to get at the array pointer
-Private Declare Function api_VarPtr Lib "msvbvm60" Alias "VarPtr" ( _
-    ByRef ArrayVar() As Any _
-) As Long
-
-Private CastStrSA1D As SAFEARRAY1D      'A dummy VB6 array header
-Private CastStrPtr  As Long             'Pointer to our dummy array
-Private CastStrArr() As Integer         'Empty array that will be hacked
 
 'Windows Version: _
  --------------------------------------------------------------------------------------
@@ -373,22 +341,6 @@ Private Sub Class_Initialize()
         )
     End If
     
-    'Prepare our dummy VB6 String header that will be used as _
-     a means to cast VB Strings directly into arrays
-    With CastStrSA1D
-        Let .cDims = 1
-        Let .fFeatures = FADF_AUTO Or FADF_FIXEDSIZE
-        Let .cbElements = 2&
-        Let .cLocks = 1&
-        Let .lLbound = 0&
-    End With
-    
-    'Get the pointer to the undimmed array that will act as zombie host to _
-     any Strings that we want to use as arrays
-    Let CastStrPtr = api_VarPtr(CastStrArr())
-    'Backup the pointer for the dummy header
-    Call api_PutMem4(CastStrPtr, VarPtr(CastStrSA1D))
-    
     'NOTE: The buffer is not initialised to begin with _
           (therefore not wasting memory for a string that is not yet populated, _
            but more so that the reserved memory does not have to be reallocated _
@@ -400,10 +352,6 @@ End Sub
 Private Sub Class_Terminate()
     'Free up the reserved memory
     Erase Data, CRCTable
-    
-    'Clean up our array hacking (for casting a String to an array) _
-     otherwise VB will crash when it frees up the memory
-    Call api_PutMem4(CastStrPtr, 0&)
 End Sub
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
@@ -1461,13 +1409,8 @@ Public Property Get Text() As String
     Else
         'Pad the return String to the right size
         Let Text = Space$(My_Length)
-        'Take the string, and attach it to our dummy array header
-        With CastStrSA1D
-            Let .pvData = StrPtr(Text)
-            Let .cElements = LenB(Text)
-        End With
         'Copy our String into the return field
-        Call api_RtlMoveMemory(VarPtr(CastStrArr(0)), UnsafePointer, My_LengthB)
+        Call api_RtlMoveMemory(StrPtr(Text), UnsafePointer, My_LengthB)
     End If
 End Property
 '--------------------------------------------------------------------------------------

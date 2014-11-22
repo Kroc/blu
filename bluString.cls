@@ -20,9 +20,9 @@ Option Explicit
 'CLASS :: bluString
 
 'Dependencies       None (self-contained)
-'Last Updated       21-NOV-14
-'Last Update        Added `CRC` method, _
-                    Removed unecessary array hacking for casting string to array
+'Last Updated       22-NOV-14
+'Last Update        Windows Version only calculated once needed (speed up class init) _
+                    Fix L/UCase bug with WinXP
 
 '--------------------------------------------------------------------------------------
 
@@ -258,7 +258,7 @@ Private Declare Function api_StrStrI Lib "shlwapi" Alias "StrStrIW" ( _
 
 'We'll cache the Windows version here as it's very slow to do this every time _
  we call methods that use alternative APIs for Vista+
-Private WindowsVersion As Single
+Private My_WindowsVersion As Single
 
 'This is where we'll store our "string" as an array of Unicode (UCS-2) points
 Private Data() As Integer
@@ -324,23 +324,6 @@ Private CRCValid As Long
 'CLASS Initialize _
  ======================================================================================
 Private Sub Class_Initialize()
-    'Get the Windows version as Windows Vista and above use alternative APIs for _
-     locale-dependent methods (such as `Compare`)
-    Dim VersionInfo As OSVERSIONINFO
-    Let VersionInfo.SizeOfMe = Len(VersionInfo)
-    'NOTE: If the app is in compatibility mode, this will return the compatible _
-     Windows version, not the actual version. Windows 8.1 and above also cause this _
-     API to always return as Windows 8.0 unless the app opts-in to correct version _
-     info via manifest, but this isn't an issue to bluString as we are only concerned _
-     with testing for Windows Vista+
-    If api_GetVersionEx(VersionInfo) = API_TRUE Then
-        '`Val`, rather than `CSng` is used here due to locale differences; _
-         `CSng("6.1")` will fail in locales that use comma as decimal separator
-        Let WindowsVersion = Val( _
-            VersionInfo.MajorVersion & "." & VersionInfo.MinorVersion _
-        )
-    End If
-    
     'NOTE: The buffer is not initialised to begin with _
           (therefore not wasting memory for a string that is not yet populated, _
            but more so that the reserved memory does not have to be reallocated _
@@ -698,6 +681,8 @@ Public Property Get CRC() As Long
         Let CRCInitialized = 1
     End If
     
+    '----------------------------------------------------------------------------------
+    
     'Has the CRC already been calculated?
     If CRCValid = 0 Then
         'Calculate the CRC by twiddling the bits
@@ -1023,7 +1008,7 @@ Public Function LCase() As bluString
     Else
         'Use the Windows XP compatible API
         Call api_LCMapString( _
-            api_GetThreadLocale(), LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
+            api_GetThreadLocale(), LCMAP_LOWERCASE Or NORM_IGNORECASE, _
             UnsafePointer, My_LengthB, _
             UnsafePointer, My_LengthB _
         )
@@ -1403,6 +1388,7 @@ End Function
 'Text : Get/Let the contents as native VB strings _
  ======================================================================================
 Public Property Get Text() As String
+Attribute Text.VB_MemberFlags = "200"
     'If ours is a null-string, return a null-string
     If My_Length = 0 Then
         Let Text = vbNullString
@@ -1481,7 +1467,7 @@ Public Function UCase() As bluString
     Else
         'Use the Windows XP compatible API
         Call api_LCMapString( _
-            api_GetThreadLocale(), LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
+            api_GetThreadLocale(), LCMAP_UPPERCASE Or NORM_IGNORECASE, _
             UnsafePointer, My_LengthB, _
             UnsafePointer, My_LengthB _
         )
@@ -1490,6 +1476,13 @@ Public Function UCase() As bluString
     'Changes to our string will invalidate the CRC
     Let CRCValid = 0
 End Function
+
+''Wrap : Append & Prepend our string, e.g. for adding quotes around a string _
+' ======================================================================================
+'Public Function Wrap() As bluString
+'    'Allow method chaining
+'    Set Wrap = Me
+'End Function
 
 ''WriteFile : Export our string to a file _
 ' ======================================================================================
@@ -1502,6 +1495,33 @@ End Function
 'End Function
 
 '/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
+
+'WindowsVersion _
+ ======================================================================================
+Private Property Get WindowsVersion() As Single
+    'For speed, we don't want to call the API every time and cache the value. _
+     If it's not been cached yet, do so
+    If My_WindowsVersion = 0 Then
+        'Get the Windows version as Windows Vista and above use alternative APIs for _
+         locale-dependent methods (such as `Compare`)
+        Dim VersionInfo As OSVERSIONINFO
+        Let VersionInfo.SizeOfMe = Len(VersionInfo)
+        'NOTE: If the app is in compatibility mode, this will return the compatible _
+         Windows version, not the actual version. Windows 8.1 and above also cause _
+         this API to always return as Windows 8.0 unless the app opts-in to correct _
+         version info via manifest, but this isn't an issue to bluString as we are _
+         only concerned with testing for Windows Vista+
+        If api_GetVersionEx(VersionInfo) = API_TRUE Then
+            '`Val`, rather than `CSng` is used here due to locale differences; _
+             `CSng("6.1")` will fail in locales that use comma as decimal separator
+            Let My_WindowsVersion = Val( _
+                VersionInfo.MajorVersion & "." & VersionInfo.MinorVersion _
+            )
+        End If
+    End If
+    'Return the cached value
+    Let WindowsVersion = My_WindowsVersion
+End Property
 
 'UnsafePointer : Gets a pointer to the string, without validation -- internal use _
  ======================================================================================
@@ -1594,6 +1614,12 @@ End Function
 Private Function ValidateIndexAllowNegative( _
     ByRef Index As Long _
 ) As Boolean
+    'Allow null string
+    If (My_Length = 0) And (Index = 0) Then
+        Let ValidateIndexAllowNegative = True
+        Exit Function
+    End If
+    
     'Is the Index negative?
     If Index < 0 Then
         'The negative position cannot be more than the length of our string
@@ -1605,7 +1631,7 @@ Private Function ValidateIndexAllowNegative( _
     Else
         'Index cannot be beyond the end of the string _
         (note that the index is 0-based and the length is 1-based)
-        If (Index < My_Length) Then Let ValidateIndexAllowNegative = True
+        If (My_Length > Index) Then Let ValidateIndexAllowNegative = True
     End If
 End Function
 

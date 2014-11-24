@@ -20,9 +20,9 @@ Option Explicit
 'CLASS :: bluString
 
 'Dependencies       None (self-contained)
-'Last Updated       22-NOV-14
-'Last Update        Windows Version only calculated once needed (speed up class init) _
-                    Fix L/UCase bug with WinXP
+'Last Updated       24-NOV-14
+'Last Update        Added ASCII option to `CharIsAlpha`, and added `CharIsNumeric`, _
+                    `CharIsAlphaNumeric` & `CharIsHex` methods
 
 '--------------------------------------------------------------------------------------
 
@@ -43,12 +43,6 @@ Option Explicit
     
 ' * Ridiculously fast! _
     Half a million string comparisons per second? No problem
-    
-'--------------------------------------------------------------------------------------
-
-'The CRC function of this class is from "Calculating CRC32 With VB" by Steve McMahon _
- <www.vbaccelerator.com/home/VB/Code/Libraries/CRC32/article.asp> which was _
- derived from from the VB.NET CRC32 algorithm by Paul Caton
 
 '/// API //////////////////////////////////////////////////////////////////////////////
 
@@ -236,6 +230,8 @@ Public Enum C1
     C1_XDIGIT = 2 ^ 7                   'Hexadecimal digits
     C1_ALPHA = 2 ^ 8                    'Any linguistic character
     C1_DEFINED = 2 ^ 9                  'Defined, but not one of the other C1_* types
+    
+    C1_ALPHANUM = C1_ALPHA Or C1_DIGIT  'Shorthand for "alpha-numeric"
 End Enum
 
 'String Searching: _
@@ -303,6 +299,12 @@ End Enum
 'The marker used for formatting strings. As a constant here, it saves VB allocating _
  and deallocating a temporary String everytime we mention it
 Private Const FORMAT_MARKER = "$$"
+
+'Stuff for doing CRCs: _
+ --------------------------------------------------------------------------------------
+'The CRC function of this class is from "Calculating CRC32 With VB" by Steve McMahon _
+ <www.vbaccelerator.com/home/VB/Code/Libraries/CRC32/article.asp> which was _
+ derived from from the VB.NET CRC32 algorithm by Paul Caton
 
 'This is the official polynomial used by CRC32 in PKZip. _
  Often the polynomial is shown reversed (04C11DB7)
@@ -476,20 +478,102 @@ Public Function CharInsert( _
         Else Let Data(Index) = (Char And &HFFFF&)
 End Function
 
-'CharIsAlpha _
+'CharIsAlpha : Returns true if the character at the index is a letter _
  ======================================================================================
+'Index          | Position within string (0-based). Can be negative, in which case the _
+                | Index is calculated from the end of the string working backwards
+'[IsASCII]      | If True, only A-Z will validate, accented characters etc. won't
 'Returns        | True if the character is alpha (a-z, but also non-latin characters)
 '======================================================================================
 Public Property Get CharIsAlpha( _
-    ByVal Index As Long _
+             ByVal Index As Long, _
+    Optional ByRef IsASCII As Boolean = False _
 ) As Boolean
-    'Note that this uses Unicode properties, so covers far more than just a-z, _
-     including accented letters and non-latin alpha letters such as "ß"
-    Let CharIsAlpha = (Me.CharProperties(Index) And C1_ALPHA) <> 0
+    'Whilst Unicode recognises a wider range of "alpha" characters, it is necessary _
+     to sometimes limit ourselves to just A-Z
+    If IsASCII = 0 Then
+        'Note that this uses Unicode properties, so covers far more than just A-Z, _
+         including accented letters and non-latin alpha letters such as "ß"
+        Let CharIsAlpha = (Me.CharProperties(Index) And C1_ALPHA) <> 0
+    Else
+        'Check the character index is within range, _
+         a negative Index will work backwards from the end of the string
+        If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Property
+        'Is the character code within A-Z? (upper and lower case)
+        If Data(Index) >= 97 And Data(Index) <= 122 Then Let CharIsAlpha = True: Exit Property
+        If Data(Index) >= 65 And Data(Index) <= 90 Then Let CharIsAlpha = True
+    End If
 End Property
 
-'CharIsLower _
+'CharIsAlphaNumeric : Returns true if the character at the index is a letter or number _
  ======================================================================================
+'Index          | Position within string (0-based). Can be negative, in which case the _
+                | Index is calculated from the end of the string working backwards
+'[IsASCII]      | If True, only A-Z&0-9 will validate, accented characters etc. won't
+'Returns        | True if the character is A-Z, 0-9
+'======================================================================================
+Public Property Get CharIsAlphaNumeric( _
+             ByVal Index As Long, _
+    Optional ByRef IsASCII As Boolean = False _
+) As Boolean
+    'Whilst Unicode recognises a wider range of "alpha-numeric" characters, _
+     it is necessary to sometimes limit ourselves to just A-Z & 0-9
+    If IsASCII = 0 Then
+        'Note that this uses Unicode properties, so covers far more than just A-Z & _
+         0-9, including accented letters and non-latin alpha letters such as "ß"
+        Let CharIsAlphaNumeric = (Me.CharProperties(Index) And C1_ALPHANUM) <> 0
+    Else
+        'Check the character index is within range, _
+         a negative Index will work backwards from the end of the string
+        If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Property
+        'Is the character code within A-Z? (upper and lower case)
+        If Data(Index) >= 97 And Data(Index) <= 122 Then Let CharIsAlphaNumeric = True: Exit Property
+        If Data(Index) >= 65 And Data(Index) <= 90 Then Let CharIsAlphaNumeric = True: Exit Property
+        'Is the character code within 0-9?
+        If Data(Index) >= 48 And Data(Index) <= 57 Then Let CharIsAlphaNumeric = True
+    End If
+End Property
+
+'CharIsHex : Returns true if the character at the index is a hexadecimal digit _
+ ======================================================================================
+'Index          | Position within string (0-based). Can be negative, in which case the _
+                | Index is calculated from the end of the string working backwards
+'Returns        | True if the character is a hexadecimal digit (0-9 & A-F)
+'======================================================================================
+Public Property Get CharIsHex( _
+    ByVal Index As Long _
+) As Boolean
+    'We could check ASCII codes, but the API can do this for us
+    Let CharIsHex = (Me.CharProperties(Index) And C1_XDIGIT) <> 0
+End Property
+
+'CharIsNumeric : Returns true if the character at the index is a number _
+ ======================================================================================
+'Index          | Position within string (0-based). Can be negative, in which case the _
+                | Index is calculated from the end of the string working backwards
+'[IsASCII]      | If True, only 0-9 will validate, non-latin/wide numbers etc. won't
+'Returns        | True if the character is a number
+'======================================================================================
+Public Property Get CharIsNumeric( _
+             ByVal Index As Long, _
+    Optional ByRef IsASCII As Boolean = False _
+) As Boolean
+    'Whilst Unicode recognises a wider range of "numeric" characters, _
+     it is necessary to sometimes limit ourselves to just 0-9
+    If IsASCII = 0 Then
+        'Note that this uses Unicode properties, so covers far more than just 0-9, _
+         including non-Latin script numerals and "wide" characters
+        Let CharIsNumeric = (Me.CharProperties(Index) And C1_DIGIT) <> 0
+    Else
+        'Is the character code within 0-9?
+        If Data(Index) >= 48 And Data(Index) <= 57 Then Let CharIsNumeric = True
+    End If
+End Property
+
+'CharIsLower : Returns true if the character at the index is lower-case _
+ ======================================================================================
+'Index          | Position within string (0-based). Can be negative, in which case the _
+                | Index is calculated from the end of the string working backwards
 'Returns        | True if the character is lower-case
 '======================================================================================
 Public Property Get CharIsLower( _
@@ -499,8 +583,10 @@ Public Property Get CharIsLower( _
     Let CharIsLower = (Me.CharProperties(Index) And C1_LOWER) <> 0
 End Property
 
-'CharIsUpper _
+'CharIsUpper : Returns true if the character at the index is upper-case _
  ======================================================================================
+'Index          | Position within string (0-based). Can be negative, in which case the _
+                | Index is calculated from the end of the string working backwards
 'Returns        | True if the character is upper-case
 '======================================================================================
 Public Property Get CharIsUpper( _

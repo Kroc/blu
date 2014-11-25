@@ -148,6 +148,16 @@ End Enum
 
 '--------------------------------------------------------------------------------------
 
+'Binary string comparison (case-sensitive) _
+ <msdn.microsoft.com/en-us/library/windows/desktop/dd317762(v=vs.85).aspx>
+Private Declare Function api_CompareStringOrdinal Lib "kernel32" Alias "CompareStringOrdinalW" ( _
+    ByVal String1Pointer As Long, _
+    ByVal String1Length As Long, _
+    ByVal String2Pointer As Long, _
+    ByVal String2Length As Long, _
+    ByVal IgnoreCase As BOOL _
+) As CSTR_
+
 'Unicode & Locale-aware string comparison (Windows XP) _
  <msdn.microsoft.com/en-us/library/windows/desktop/dd317759(v=vs.85).aspx>
 Private Declare Function api_CompareString Lib "kernel32" Alias "CompareStringW" ( _
@@ -845,30 +855,40 @@ Public Function Equals( _
         Exit Function
     End If
     
-    'The APIs used default to binary search, with a flag for ignoring case. _
-     The `CaseSensitive` property will be used for setting these
-    Dim Flags As CompareString_Flags
+    'Are we doing a case-insensitive comparison?
+    If My_CaseSensitive = 0 Then
+        'Case sensitivity flags in the API is different for each operating-system
+        Dim Flags As CompareString_Flags
+        
+        'Check for Windows Vista and above:
+        If WindowsVersion >= 6 Then
+            'Windows Vista and above have more capable case-comparisons
+            If My_CaseSensitive = 0 Then Let Flags = LINGUISTIC_IGNORECASE
+            'NOTE: The use of null on the first parameter causes Windows to use the _
+             user's current locale, so we don't need to manually fetch the locale name
+            Let Equals = (api_CompareStringEx( _
+                0&, Flags, _
+                StrPtr(Text), -1, _
+                UnsafePointer, -1, _
+                0&, 0&, 0& _
+            ) = CSTR_EQUAL)
+        Else
+            'This is the simpler case-comparison supported by XP
+            If My_CaseSensitive = 0 Then Let Flags = NORM_IGNORECASE
+            'Fall back to the XP-compatible API
+            Let Equals = (api_CompareString( _
+                api_GetThreadLocale(), Flags, _
+                StrPtr(Text), -1, _
+                UnsafePointer, -1 _
+            ) = CSTR_EQUAL)
+        End If
     
-    'Check for Windows Vista and above:
-    If WindowsVersion >= 6 Then
-        'Windows Vista and above have more capable case-comparisons
-        If My_CaseSensitive = 0 Then Let Flags = LINGUISTIC_IGNORECASE
-        'NOTE: The use of null on the first parameter causes Windows to use the _
-         user's current locale, so we don't need to manually fetch the locale name
-        Let Equals = (api_CompareStringEx( _
-            0&, Flags, _
+    'Case-sensitive (binary) comparison
+    Else
+        Let Equals = (api_CompareStringOrdinal( _
             StrPtr(Text), -1, _
             UnsafePointer, -1, _
-            0&, 0&, 0& _
-        ) = CSTR_EQUAL)
-    Else
-        'This is the simpler case-comparison supported by XP
-        If My_CaseSensitive = 0 Then Let Flags = NORM_IGNORECASE
-        'Fall back to the XP-compatible API
-        Let Equals = (api_CompareString( _
-            api_GetThreadLocale(), Flags, _
-            StrPtr(Text), -1, _
-            UnsafePointer, -1 _
+            API_FALSE _
         ) = CSTR_EQUAL)
     End If
 End Function

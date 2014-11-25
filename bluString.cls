@@ -21,8 +21,7 @@ Option Explicit
 
 'Dependencies       None (self-contained)
 'Last Updated       25-NOV-14
-'Last Update        Added `CaseSensitive` property, modified `Equals` accordingly, _
-                    and added case-insenitive behaviour to `Replace`
+'Last Update        Added `CharIsVisible` property
 
 '--------------------------------------------------------------------------------------
 
@@ -242,6 +241,9 @@ Public Enum C1
     C1_DEFINED = 2 ^ 9                  'Defined, but not one of the other C1_* types
     
     C1_ALPHANUM = C1_ALPHA Or C1_DIGIT  'Shorthand for "alpha-numeric"
+    
+    'Visible ("Printable") characters, this includes spaces, tabs &c.
+    C1_VISIBLE = C1_SPACE Or C1_PUNCT Or C1_BLANK Or C1_ALPHANUM
 End Enum
 
 'String Searching: _
@@ -617,6 +619,21 @@ Public Property Get CharIsUpper( _
 ) As Boolean
     'Note that this uses Unicode properties, so covers far more than just A-Z
     Let CharIsUpper = (Me.CharProperties(Index) And C1_UPPER) <> 0
+End Property
+
+'CharIsVisible : Returns true if the character at the index is visible _
+ ======================================================================================
+'Index          | Position within string (0-based). Can be negative, in which case the _
+                | Index is calculated from the end of the string working backwards
+'Returns        | True if the character is visible
+'======================================================================================
+Public Property Get CharIsVisible( _
+    ByVal Index As Long _
+) As Boolean
+    'An "invisible" character is either a Control Code (such as Null), _
+     or an undefined Unicode point. Zero-width space, whilst technically 'invisible' _
+     in a proportional font still counts as "visible" as it's a defined character
+    Let CharIsVisible = (Me.CharProperties(Index) And C1_VISIBLE) <> 0
 End Property
 
 'CharProperties : Returns the Unicode properties for a character in the string _

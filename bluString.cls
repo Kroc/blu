@@ -20,9 +20,9 @@ Option Explicit
 'CLASS :: bluString
 
 'Dependencies       None (self-contained)
-'Last Updated       24-NOV-14
-'Last Update        Added ASCII option to `CharIsAlpha`, and added `CharIsNumeric`, _
-                    `CharIsAlphaNumeric` & `CharIsHex` methods
+'Last Updated       25-NOV-14
+'Last Update        Added `CaseSensitive` property, modified `Equals` accordingly, _
+                    and added case-insenitive behaviour to `Replace`
 
 '--------------------------------------------------------------------------------------
 
@@ -300,6 +300,10 @@ End Enum
  and deallocating a temporary String everytime we mention it
 Private Const FORMAT_MARKER = "$$"
 
+'Case-sensitivity in methods such as `Format` and `LCase`/`UCase` is controlled _
+ across the class by a property
+Private My_CaseSensitive As Long
+
 'Stuff for doing CRCs: _
  --------------------------------------------------------------------------------------
 'The CRC function of this class is from "Calculating CRC32 With VB" by Steve McMahon _
@@ -394,6 +398,15 @@ Public Property Let Buffer( _
     ReDim Preserve Data(0 To My_Buffer) As Integer
     'Ensure it's null-terminated!
     Let Data(My_Buffer) = 0
+End Property
+
+'CaseSensitive : Turn case-sensitivity on or off _
+ ======================================================================================
+Public Property Get CaseSensitive() As Boolean
+    Let CaseSensitive = My_CaseSensitive
+End Property
+Public Property Let CaseSensitive(ByRef Mode As Boolean)
+    Let My_CaseSensitive = Mode
 End Property
 
 'Char : The Unicode (UCS-2) point of the character at the provided character index _
@@ -697,7 +710,7 @@ Public Function Clear() As bluString
     If My_Length > 0 Then
         'This does not change the size of the buffer, should it have increased. _
          If you intend to reuse a large string for a small string, create a new _
-         bluString instance instead or call the `ReduceBuffer` method
+         bluString instance instead or call the `Destroy` method
         Call api_RtlZeroMemory(UnsafePointer, My_Buffer)
         'Mark the string as being null-length
         Let My_Length = 0: Let My_LengthB = 0
@@ -814,12 +827,10 @@ End Function
 'Equals : A fast method to check if one string equals another _
  ======================================================================================
 'Text           | VB String to compare our string against
-'[CompareMethod]| Whether to use case-sensitive or case-insensitive comparison
 'Returns        | True if strings are equal, False if not
 '======================================================================================
 Public Function Equals( _
-             ByRef Text As String, _
-    Optional ByRef CompareMethod As VBA.VbCompareMethod = vbTextCompare _
+    ByRef Text As String _
 ) As Boolean
     'Any length difference is immediately invalid!
     If LenB(Text) <> My_LengthB Then Exit Function
@@ -834,13 +845,14 @@ Public Function Equals( _
         Exit Function
     End If
     
-    'The APIs used default to binary search, with a flag for ignoring case
+    'The APIs used default to binary search, with a flag for ignoring case. _
+     The `CaseSensitive` property will be used for setting these
     Dim Flags As CompareString_Flags
     
     'Check for Windows Vista and above:
     If WindowsVersion >= 6 Then
         'Windows Vista and above have more capable case-comparisons
-        If CompareMethod = vbTextCompare Then Let Flags = LINGUISTIC_IGNORECASE
+        If My_CaseSensitive = 0 Then Let Flags = LINGUISTIC_IGNORECASE
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
         Let Equals = (api_CompareStringEx( _
@@ -851,7 +863,7 @@ Public Function Equals( _
         ) = CSTR_EQUAL)
     Else
         'This is the simpler case-comparison supported by XP
-        If CompareMethod = vbTextCompare Then Let Flags = NORM_IGNORECASE
+        If My_CaseSensitive = 0 Then Let Flags = NORM_IGNORECASE
         'Fall back to the XP-compatible API
         Let Equals = (api_CompareString( _
             api_GetThreadLocale(), Flags, _
@@ -1395,9 +1407,16 @@ Public Function Replace( _
     Dim LenB_ReplaceWith As Long:   Let LenB_ReplaceWith = LenB(ReplaceWith)
     
 Continue:
-    'Search for the sub-string
+    '----------------------------------------------------------------------------------
+    'Case-sensitivity is handled by the class `CaseSensitive` property
     Dim ResultPointer As Long
-    Let ResultPointer = api_StrStr(StartPointer, StrPtr_SearchFor)
+    If My_CaseSensitive = 0 Then
+        'Search for the sub-string (case-insensitive)
+        Let ResultPointer = api_StrStr(StartPointer, StrPtr_SearchFor)
+    Else
+        'Search for the sub-string (case-sensitive)
+        Let ResultPointer = api_StrStrI(StartPointer, StrPtr_SearchFor)
+    End If
     
     'If the returned pointer is null, the sub-string was not found
     If ResultPointer = 0 Then Exit Function
@@ -1585,11 +1604,11 @@ End Function
 'WindowsVersion _
  ======================================================================================
 Private Property Get WindowsVersion() As Single
-    'For speed, we don't want to call the API every time and cache the value. _
+    'For speed, we don't want to call the API every time, cache the value. _
      If it's not been cached yet, do so
     If My_WindowsVersion = 0 Then
         'Get the Windows version as Windows Vista and above use alternative APIs for _
-         locale-dependent methods (such as `Compare`)
+         locale-dependent methods (such as `Equals`)
         Dim VersionInfo As OSVERSIONINFO
         Let VersionInfo.SizeOfMe = Len(VersionInfo)
         'NOTE: If the app is in compatibility mode, this will return the compatible _

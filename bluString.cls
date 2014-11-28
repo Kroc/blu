@@ -19,9 +19,10 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluString
 
-'Dependencies       None (self-contained)
-'Last Updated       25-NOV-14
-'Last Update        Added `CharIsVisible` property
+'Dependencies       bluStringArray.bas (See `Format` method)
+'Last Updated       28-NOV-14
+'Last Update        Fixed crash with bad pointer math when string is reallocated. _
+                    Added support for recursively walking arrays passed into `Format`
 
 '--------------------------------------------------------------------------------------
 
@@ -620,7 +621,7 @@ Public Property Get CharIsSpace( _
     ByVal Index As Long _
 ) As Boolean
     'Note that this uses Unicode properties, so covers far more than just ASCII space
-    Let CharIsUpper = (Me.CharProperties(Index) And C1_WHITESPACE) <> 0
+    Let CharIsSpace = (Me.CharProperties(Index) And C1_WHITESPACE) <> 0
 End Property
 
 'CharIsUpper : Returns true if the character at the index is upper-case
@@ -658,18 +659,18 @@ End Property
 'Returns        | A bit battern that describes the Unicode properties of the character
 '               | as defined in the C1 enum
 '======================================================================================
-Public Function CharProperties( _
+Public Property Get CharProperties( _
     ByVal Index As Long _
 ) As C1
     'Check the character index is within range, _
      a negative Index will work backwards from the end of the string
-    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
+    If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Property
     'Use the API to fill the return value with the character properties
     Call api_GetStringTypeW( _
         CT_CTYPE1, UnsafePointer(Index), 1, _
         VarPtr(CharProperties) _
     )
-End Function
+End Property
 
 'CharPull : Removes the last character of the string and returns the character code
 '======================================================================================
@@ -944,73 +945,37 @@ Public Function Format( _
     If Last < First Then Exit Function
     
     'For non-String parameters, we will do the String conversion, but we will need _
-     somewhere to store them so that we can get at their pointers
+     somewhere to store them so that we can get at their pointers. The bluStringArray _
+     provides an easy means of managing the text, length and pointer for each.
     'There are APIs for doing String conversion <vbforums.com/showthread.php?736407> _
      but `CStr` is probably already using this behind the scenes. Also, rolling your _
      own String conversion is actually super difficult _
      <serpentine.com/blog/2011/06/29/here-be-dragons>
-    Dim Strings() As String
-    ReDim Strings(First To Last) As String
-    'For some types we won't need to convert to String and can use the already _
-     existing pointer (for example, working with bluStrings)
-    Dim Pointers() As Long
-    ReDim Pointers(First To Last) As Long
-    'And lastly, we'll need to know how long each replacement String is
-    Dim Lengths() As Long
-    ReDim Lengths(First To Last) As Long
+    Dim Strings As bluStringArray
+    Set Strings = New bluStringArray
     
-    'Walk the params provided
-    Dim Index As Long
-    For Index = First To Last
-        'Check the type of the parameter (Long, String, Double &c.)
-        Dim ParamType As VBA.VbVarType
-        Let ParamType = VarType(Params(Index))
-        
-        Select Case ParamType
-            Case vbString
-                '......................................................................
-                'We don't want to duplicate existing Strings, we just need the _
-                 existing pointers. (`StrPtr` will peek correctly into the Variant)
-                 Let Pointers(Index) = StrPtr(Params(Index))
-                 Let Lengths(Index) = Len(Params(Index))
-                 
-            Case vbObject
-                '......................................................................
-                'If this is a bluString, use its string without cloning it. For _
-                 other objects, we can't cast to String. Raise "Type Mismatch" error
-                If TypeOf Params(Index) Is bluString Then
-                    Let Pointers(Index) = Params(Index).Pointer
-                    Let Lengths(Index) = Params(Index).Length
-                Else
-                    Err.Raise (13): GoTo Finish
-                End If
-            
-            'These types can be converted to a String
-            Case vbBoolean, vbByte, vbCurrency, vbDate, vbDecimal, vbDouble, _
-                 vbEmpty, vbError, vbInteger, vbLong, vbSingle
-                '......................................................................
-                Let Strings(Index) = CStr(Params(Index))
-                Let Pointers(Index) = StrPtr(Strings(Index))
-                Let Lengths(Index) = Len(Strings(Index))
-                
-            Case Else
-                'All other data types can't be co-erced
-                Err.Raise (13): GoTo Finish
-        End Select
-    Next Index
+    'Walk the params provided, converting them to Strings.
+    Dim Param As Long
+    For Param = First To Last
+        Call PushFormatParam(Params(Param), Strings)
+    Next Param
     
     '----------------------------------------------------------------------------------
     
     'Speed up references to the format marker we'll be searching for
-    Dim MarkerLength As Long:   Let MarkerLength = LenB(FORMAT_MARKER)
+    Dim MarkerLengthB As Long:  Let MarkerLengthB = LenB(FORMAT_MARKER)
     Dim MarkerPointer As Long:  Let MarkerPointer = StrPtr(FORMAT_MARKER)
     
-    'Start again with the first argument; as we find each marker, we'll move to the _
-     next argument. It's possible there will be too many or too few markers
-    Let Index = First
+    'Begin with our constructed string array, which may be longer than the input _
+     params due to Variant arrays. As we find each marker, we'll move to the string. _
+     It's possible there will be too many or too few markers
+    Let Param = 0
     
-    'The API returns a pointer in the string, not an index, _
-     we'll use this to start searching from where we left off!
+    'The API returns a pointer in the string, not an index. Since replacements could _
+     extend the string such that it gets reallocated we cannot rely on a pointer _
+     returned from a search to be valid after the replacement so we need to calculate _
+     the character index from the pointer to be able to continue where we left off _
+     -- replacements could contain the search term, leading to an infinite loop!
     Dim StartPointer As Long
     Let StartPointer = Format.Pointer()
     
@@ -1019,7 +984,7 @@ Continue:
      to remove parts of our string and vice-versa. Work out the impact the _
      replacement will have on the length of our string
     Dim Difference As Long
-    Let Difference = Lengths(Index) - Len(FORMAT_MARKER)
+    Let Difference = Strings.Item(Param).Length - Len(FORMAT_MARKER)
     
     'Search for the format marker
     Dim ResultPointer As Long
@@ -1028,51 +993,70 @@ Continue:
     'If the returned pointer is null, the marker was not found
     If ResultPointer = 0 Then GoTo Finish
     
+    'From the result pointer, calculate the byte offset index in the string _
+     (the pointer may become invalid after string replacement!)
+    Dim IndexB As Long
+    Let IndexB = ResultPointer - Format.Pointer()
+    
     'If both the marker and the replacement are the same length, _
      we don't need to move parts of the string about
     If Difference = 0 Then
         'Replace the marker
         Call api_RtlMoveMemory( _
-            ResultPointer, Pointers(Index), Lengths(Index) * 2 _
+            ResultPointer, _
+            Strings.Item(Param).Pointer, Strings.Item(Param).LengthBytes _
         )
     Else
         'Calculate the remainder portion of our string that will be moved
+        'Calculate the remainder portion of our string that will be moved
         Dim Remainder As Long
-        Let Remainder = (Format.Pointer() + (Format.Length * 2)) - ( _
-            StartPointer + MarkerLength _
-        )
+        Let Remainder = Format.LengthBytes - (IndexB + MarkerLengthB)
         
         'If the replacement string is longer than the search string, _
          our string will get longer overall
-        If Difference > 0 Then Let Format.Length = Format.Length + Difference
+        'WARNING: If the string increases beyond the buffer, _
+         it will be reallocated, making `ResultPointer` invalid!
+        If Difference > 0 Then
+            Let Format.Length = Format.Length + Difference
+            'Get the potentially new string pointer
+            Let StartPointer = Format.Pointer()
+            Let ResultPointer = StartPointer + IndexB
+        End If
         
         'Shift up or down the remainder portion of our string
         Call api_RtlMoveMemory( _
-            ResultPointer + (Lengths(Index) * 2), _
-            ResultPointer + MarkerLength, _
+            ResultPointer + Strings.Item(Param).LengthBytes, _
+            ResultPointer + MarkerLengthB, _
             Remainder _
         )
         'If the replacement string is shorter than the search string, _
          our string will get shorter overall
-        If Difference < 0 Then Let Format.Length = Format.Length + Difference
+        'WARNING: If the string increases beyond the buffer, _
+         it will be reallocated, making `StartPointer` invalid!
+        If Difference < 0 Then
+            Let Format.Length = Format.Length + Difference
+            'Get the potentially new string pointer
+            Let StartPointer = Format.Pointer()
+            Let ResultPointer = StartPointer + IndexB
+        End If
         
         'Copy the replacement string in
         Call api_RtlMoveMemory( _
-            ResultPointer, Pointers(Index), Lengths(Index) * 2 _
+            ResultPointer, Strings.Item(Param).Pointer, Strings.Item(Param).LengthBytes _
         )
     End If
     
     'We don't want an infinite loop, so move our search pointer over the replacement
-    Let StartPointer = StartPointer + Lengths(Index) * 2
+    Let StartPointer = ResultPointer + Strings.Item(Param).LengthBytes
     'Move onto the next parameter
-    Let Index = Index + 1: If Index > Last Then GoTo Finish
+    Let Param = Param + 1: If Param = Strings.Count Then GoTo Finish
     'Proceed with the next search
     GoTo Continue
     
     '----------------------------------------------------------------------------------
 Finish:
     'And clean up
-    Erase Strings, Pointers, Lengths
+    Set Strings = Nothing
 End Function
 
 'Insert : Insert some text in the middle of the existing string
@@ -1258,6 +1242,10 @@ TestBuffer:
     Let CRCValid = 0
 End Property
 
+'LengthBytes : Length of the content in bytes, cannot be set
+'======================================================================================
+Public Property Get LengthBytes() As Long: Let LengthBytes = My_LengthB: End Property
+
 'Mid : Reduce the string to a sub-string portion
 '======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case
@@ -1410,11 +1398,9 @@ Public Function Remove( _
     
     'Shift the remainder down into the removed area
     Call UnsafeCopy(Index + Length, Index, Length)
-    'Update the string length
+    'Update the string length _
+     (this will also invalidate the CRC)
     Let Me.Length = My_Length - Length
-    
-    'Changes to our string will invalidate the CRC
-    Let CRCValid = 0
 End Function
 
 'Replace : Search for a sub-string and replace it with another
@@ -1432,17 +1418,16 @@ Public Function Replace( _
 ) As bluString
     'Allow method chaining
     Set Replace = Me
-    'Ensure that the count will return 0 if nothing is found
+    'Ensure that the count will return 0 if nothing is found _
+     (especially if the variable passed in already had a value)
     Let ReturnCount = 0
     
-    'You can't search in a null string
+    'You can't search in a null-string!
     If My_Length = 0 Then Exit Function
+    'You can't search for a null-string!
+    If Len(SearchFor) = 0 Then Exit Function
     'What you're searching for cannot be longer than our string
     If Len(SearchFor) > My_Length Then Exit Function
-    
-    'Changes to our string will invalidate the CRC
-    'TODO: Check if there actually were any replacements
-    Let CRCValid = 0
     
     'If the replacement string is shorter than the search string, then we'll need _
      to remove parts of our string and vice-versa. Work out the impact the _
@@ -1450,8 +1435,11 @@ Public Function Replace( _
     Dim Difference As Long
     Let Difference = Len(ReplaceWith) - Len(SearchFor)
     
-    'The API returns a pointer in the string, not an index, _
-     we'll use this to start searching from where we left off!
+    'The API returns a pointer in the string, not an index. Since replacements could _
+     extend the string such that it gets reallocated we cannot rely on a pointer _
+     returned from a search to be valid after the replacement so we need to calculate _
+     the character index from the pointer to be able to continue where we left off _
+     -- replacements could contain the search term, leading to an infinite loop!
     Dim StartPointer As Long
     Let StartPointer = UnsafePointer()
     
@@ -1463,36 +1451,41 @@ Public Function Replace( _
     
 Continue:
     '----------------------------------------------------------------------------------
-    'Case-sensitivity is handled by the class `CaseSensitive` property
+    'Search for the sub-string: _
+     (case-sensitivity is handled by the class `CaseSensitive` property)
     Dim ResultPointer As Long
-    If My_CaseSensitive = 0 Then
-        'Search for the sub-string (case-insensitive)
-        Let ResultPointer = api_StrStr(StartPointer, StrPtr_SearchFor)
-    Else
-        'Search for the sub-string (case-sensitive)
-        Let ResultPointer = api_StrStrI(StartPointer, StrPtr_SearchFor)
-    End If
+    If My_CaseSensitive = 0 _
+        Then Let ResultPointer = api_StrStr(StartPointer, StrPtr_SearchFor) _
+        Else Let ResultPointer = api_StrStrI(StartPointer, StrPtr_SearchFor)
     
     'If the returned pointer is null, the sub-string was not found
-    If ResultPointer = 0 Then Exit Function
+    If ResultPointer = 0 Then GoTo Finish
+    
+    'From the result pointer, calculate the byte offset index in our string _
+     (the pointer may become invalid after string replacement!)
+    Dim IndexB As Long
+    Let IndexB = ResultPointer - UnsafePointer()
     
     'If both the search string and the replacement are the same length, _
      we don't need to move parts of our string about
     If Difference = 0 Then
         'Replace the found string
-        Call api_RtlMoveMemory( _
-            ResultPointer, StrPtr_ReplaceWith, LenB_ReplaceWith _
-        )
+        Call api_RtlMoveMemory(ResultPointer, StrPtr_ReplaceWith, LenB_ReplaceWith)
     Else
         'Calculate the remainder portion of our string that will be moved
         Dim Remainder As Long
-        Let Remainder = (UnsafePointer() + My_LengthB) - ( _
-            StartPointer + LenB_SearchFor _
-        )
+        Let Remainder = My_LengthB - (IndexB + LenB_SearchFor)
         
         'If the replacement string is longer than the search string, _
          our string will get longer overall
-        If Difference > 0 Then Let Me.Length = My_Length + Difference
+        'WARNING: If the string increases beyond the buffer, _
+         it will be reallocated, making `ResultPointer` invalid!
+        If Difference > 0 Then
+            Let Me.Length = My_Length + Difference
+            'Get the potentially new string pointer
+            Let StartPointer = UnsafePointer()
+            Let ResultPointer = StartPointer + IndexB
+        End If
         
         'Shift up or down the remainder portion of our string
         Call api_RtlMoveMemory( _
@@ -1502,7 +1495,14 @@ Continue:
         )
         'If the replacement string is shorter than the search string, _
          our string will get shorter overall
-        If Difference < 0 Then Let Me.Length = My_Length + Difference
+        'WARNING: If the string increases beyond the buffer, _
+         it will be reallocated, making `StartPointer` invalid!
+        If Difference < 0 Then
+            Let Me.Length = My_Length + Difference
+            'Get the potentially new string pointer
+            Let StartPointer = UnsafePointer()
+            Let ResultPointer = StartPointer + IndexB
+        End If
         
         'Copy the replacement string in
         Call api_RtlMoveMemory( _
@@ -1511,8 +1511,16 @@ Continue:
     End If
     
     'We don't want an infinite loop, so move our search pointer over the replacement
-    Let StartPointer = StartPointer + LenB_ReplaceWith
+    Let StartPointer = ResultPointer + LenB_ReplaceWith
+    'Increase the result count
+    Let ReturnCount = ReturnCount + 1
+    
     GoTo Continue
+    
+Finish:
+    '----------------------------------------------------------------------------------
+    'Changes to our string will invalidate the CRC
+    If ReturnCount <> 0 Then Let CRCValid = 0
 End Function
 
 'Right : Keep only the given right-most number of characters
@@ -1588,13 +1596,40 @@ End Property
 '    'TODO
 'End Function
 
-''TrimLeft : Strip whitespace characters from the beginning
-''======================================================================================
-'Public Function TrimLeft() As bluString
-'    'Allow method chaining
-'    Set TrimLeft = Me
-'    'TODO
-'End Function
+'TrimLeft : Strip whitespace characters from the beginning
+'======================================================================================
+Public Function TrimLeft() As bluString
+    'Allow method chaining
+    Set TrimLeft = Me
+    'Null string won't trim!
+    If My_Length = 0 Then Exit Function
+    
+Continue:
+    'Walk along the left of the string looking for whitespace/blank characters
+    Dim Index As Long
+    Dim Props As C1
+    
+    'If the character is whitespace, or not a defined Unicode point, then ...
+    Let Props = Me.CharProperties(Index)
+    If ((Props And C1_WHITESPACE) <> 0) Or ((Props And C1_DEFINED) = 0) Then
+        'Move along to the next char
+        Let Index = Index + 1
+        'Have we hit the end of our string?
+        If Index = My_Length Then
+            'The whole string is whitespace -- nullify it
+            Call Me.Destroy
+            Exit Function
+        End If
+        'Check the next character
+        GoTo Continue
+    End If
+    
+    'The first non-space character has been found, remove this portion of the string
+    Call UnsafeCopy(Index, 0, My_Length - Index)
+    'Update the string length _
+     (this will also invalidate the CRC)
+    Let Me.Length = My_Length - Index
+End Function
 
 ''TrimRight : Strip whitespace characters from the end
 ''======================================================================================
@@ -1656,32 +1691,60 @@ End Function
 
 '/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
 
-'WindowsVersion
+'PushFormatParam : Convert Variants to bluStrings, including recursive array walking
 '======================================================================================
-Private Property Get WindowsVersion() As Single
-    'For speed, we don't want to call the API every time, cache the value. _
-     If it's not been cached yet, do so
-    If My_WindowsVersion = 0 Then
-        'Get the Windows version as Windows Vista and above use alternative APIs for _
-         locale-dependent methods (such as `Equals`)
-        Dim VersionInfo As OSVERSIONINFO
-        Let VersionInfo.SizeOfMe = Len(VersionInfo)
-        'NOTE: If the app is in compatibility mode, this will return the compatible _
-         Windows version, not the actual version. Windows 8.1 and above also cause _
-         this API to always return as Windows 8.0 unless the app opts-in to correct _
-         version info via manifest, but this isn't an issue to bluString as we are _
-         only concerned with testing for Windows Vista+
-        If api_GetVersionEx(VersionInfo) = API_TRUE Then
-            '`Val`, rather than `CSng` is used here due to locale differences; _
-             `CSng("6.1")` will fail in locales that use comma as decimal separator
-            Let My_WindowsVersion = Val( _
-                VersionInfo.MajorVersion & "." & VersionInfo.MinorVersion _
-            )
-        End If
-    End If
-    'Return the cached value
-    Let WindowsVersion = My_WindowsVersion
-End Property
+'Param          | Some value of any type, including arrays
+'IntoStringArray| The bluStringArray which will hold the converted param
+'======================================================================================
+Private Sub PushFormatParam( _
+    ByRef Param As Variant, _
+    ByRef IntoStringArray As bluStringArray _
+)
+    'Check the type of the parameter (Long, String, Double &c.)
+    Dim ParamType As VBA.VbVarType
+    Let ParamType = VarType(Param)
+       
+    Dim i As Long
+    Select Case ParamType
+        'These types can be converted to a String
+        Case vbString, vbBoolean, vbByte, vbCurrency, vbDate, vbDecimal, _
+             vbDouble, vbEmpty, vbError, vbInteger, vbLong, vbSingle
+            '..........................................................................
+            Call IntoStringArray.Add(CStr(Param))
+            
+        Case vbObject
+            '..........................................................................
+            'If this is a bluString, use its string without cloning it. For _
+             other objects, we can't cast to String. Raise "Type Mismatch" error
+            If TypeOf Param Is bluString Then
+                '`Var2bluString` converts the Variant Object type into a class _
+                 reference to allow the strong-typed function call
+                Call IntoStringArray.AddBluString(Var2bluString(Param))
+            
+            'Walk a bluStringArray
+            ElseIf TypeOf Param Is bluStringArray Then
+                For i = 0 To Param.Count - 1
+                    Call IntoStringArray.AddBluString(Var2bluString(Param.Item(i)))
+                Next i
+            Else
+                Err.Raise (13)
+            End If
+            
+        'Note that vbArray is combined with the data type inside the array, _
+         typical Variant too, i.e. `vbArray + vbVariant`
+        Case Is >= vbArray
+            '..........................................................................
+            'Arrays need to be walked, pushing each value as its own parameter
+            For i = LBound(Param) To UBound(Param)
+                Call PushFormatParam(Param(i), IntoStringArray)
+            Next i
+            
+        Case Else
+            '..........................................................................
+            'All other data types can't be co-erced
+            Err.Raise (13)
+    End Select
+End Sub
 
 'UnsafePointer : Gets a pointer to the string, without validation -- internal use
 '======================================================================================
@@ -1727,6 +1790,15 @@ Private Sub UnsafeCopyString( _
     )
 End Sub
 
+'Var2bluString : Casts a Variant to a bluString class (for use with `Format`)
+'======================================================================================
+'Obj            | A Variant, hopefully containing a bluString!)
+'Returns        | An actual bluString! (for strcit type handling)
+'======================================================================================
+Private Function Var2bluString(ByRef Obj As Variant) As bluString
+    Set Var2bluString = Obj
+End Function
+
 'ValidateChar : Validates a Unicode character code
 '======================================================================================
 'Char           | A Unicode character code (0 to 65535) or a negative number
@@ -1744,7 +1816,7 @@ Private Function ValidateChar( _
             Let ValidateChar = True
         End If
     Else
-        'Maximum of 65535
+        'Maximum of $FFFF
         If Char < 65536 Then Let ValidateChar = True
     End If
 End Function
@@ -1819,3 +1891,30 @@ Private Function ValidateRange( _
         End If
     End If
 End Function
+
+'WindowsVersion
+'======================================================================================
+Private Property Get WindowsVersion() As Single
+    'For speed, we don't want to call the API every time, cache the value. _
+     If it's not been cached yet, do so
+    If My_WindowsVersion = 0 Then
+        'Get the Windows version as Windows Vista and above use alternative APIs for _
+         locale-dependent methods (such as `Equals`)
+        Dim VersionInfo As OSVERSIONINFO
+        Let VersionInfo.SizeOfMe = Len(VersionInfo)
+        'NOTE: If the app is in compatibility mode, this will return the compatible _
+         Windows version, not the actual version. Windows 8.1 and above also cause _
+         this API to always return as Windows 8.0 unless the app opts-in to correct _
+         version info via manifest, but this isn't an issue to bluString as we are _
+         only concerned with testing for Windows Vista+
+        If api_GetVersionEx(VersionInfo) = API_TRUE Then
+            '`Val`, rather than `CSng` is used here due to locale differences; _
+             `CSng("6.1")` will fail in locales that use comma as decimal separator
+            Let My_WindowsVersion = Val( _
+                VersionInfo.MajorVersion & "." & VersionInfo.MinorVersion _
+            )
+        End If
+    End If
+    'Return the cached value
+    Let WindowsVersion = My_WindowsVersion
+End Property

@@ -20,9 +20,8 @@ Option Explicit
 'CLASS :: bluString
 
 'Dependencies       bluStringArray.bas (See `Format` method)
-'Last Updated       28-NOV-14
-'Last Update        Fixed crash with bad pointer math when string is reallocated. _
-                    Added support for recursively walking arrays passed into `Format`
+'Last Updated       30-NOV-14
+'Last Update        Fixed upper/lower-casing on XP
 
 '--------------------------------------------------------------------------------------
 
@@ -1145,7 +1144,7 @@ Public Function LCase() As bluString
     Else
         'Use the Windows XP compatible API
         Call api_LCMapString( _
-            api_GetThreadLocale(), LCMAP_LOWERCASE Or NORM_IGNORECASE, _
+            api_GetThreadLocale(), LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
             UnsafePointer, My_LengthB, _
             UnsafePointer, My_LengthB _
         )
@@ -1662,7 +1661,7 @@ Public Function UCase() As bluString
     Else
         'Use the Windows XP compatible API
         Call api_LCMapString( _
-            api_GetThreadLocale(), LCMAP_UPPERCASE Or NORM_IGNORECASE, _
+            api_GetThreadLocale(), LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
             UnsafePointer, My_LengthB, _
             UnsafePointer, My_LengthB _
         )

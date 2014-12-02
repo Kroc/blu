@@ -136,21 +136,29 @@ Private Sub Class_Terminate()
     
     'Dump a report
     Debug.Print "[bluProfiler] Terminated"
-    Dim i As Long
-    For i = 0 To EventCount: With Events(i)
-        Debug.Print "[bluProfiler] " & .Title _
-            & " x" & Format$(CStr(.Count), "#,0") _
-            & " =" & Format$(CStr(.Elapsed), "#,0") & "ms" _
-            & " >" & Format$(CStr(.Min), "#,0") & "ms" _
-            & " ~" & Format$(CStr(.Elapsed / .Count), "#,0.###") & "ms" _
-            & " <" & Format$(CStr(.Max), "#,0") & "ms"
-    End With: Next i
+    Call Me.DebugPrint
     
     'Clear the data out
     Erase Events
 End Sub
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
+
+Public Sub DebugPrint()
+    Debug.Print "[bluProfiler] Event Report:                   Iterations Elapsed    Min    Average    Max"
+    Debug.Print "========================================================================================="
+    
+    Dim i As Long
+    For i = 0 To EventCount: With Events(i)
+        Debug.Print "* " _
+            & Left$(.Title & Space$(46), 46) _
+            & " " & Right$(Space$(7) & Format$(CStr(.Count), "#,0"), 7) _
+            & " " & Right$(Space$(7) & Format$(CStr(.Elapsed), "#,0"), 7) _
+            & " " & Right$(Space$(6) & Format$(CStr(.Min), "#,0"), 6) _
+            & " " & Right$(Space$(10) & Format$(CStr(.Elapsed / .Count), "#,0.00"), 10) _
+            & " " & Right$(Space$(6) & Format$(CStr(.Max), "#,0"), 6)
+    End With: Next i
+End Sub
 
 'EventBegin
 '======================================================================================

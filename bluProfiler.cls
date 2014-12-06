@@ -150,7 +150,7 @@ Public Sub DebugPrint()
     
     Dim i As Long
     For i = 0 To EventCount: With Events(i)
-        Debug.Print "* " _
+        If .Count > 0 Then Debug.Print "* " _
             & Left$(.Title & Space$(46), 46) _
             & " " & Right$(Space$(7) & Format$(CStr(.Count), "#,0"), 7) _
             & " " & Right$(Space$(7) & Format$(CStr(.Elapsed), "#,0"), 7) _

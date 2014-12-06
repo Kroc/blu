@@ -19,9 +19,10 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluString
 
-'Dependencies       bluStringArray.bas (See `Format` method)
-'Last Updated       02-DEC-14
-'Last Update        Added `Wrap` method
+'Dependencies       bluArrayString.bas (See `Format` method)
+'Last Updated       06-DEC-14
+'Last Update        Switched to bluArrayString so that Variant conversion does not _
+                    need to be done here
 
 '--------------------------------------------------------------------------------------
 
@@ -44,6 +45,91 @@ Option Explicit
     Half a million string comparisons per second? No problem
 
 '/// API //////////////////////////////////////////////////////////////////////////////
+
+'This enum is provided to make working with Character Codes more readable and obvious. _
+ The data for this was taken from <danshort.com/unicode>
+Public Enum UCS2
+    'C0 Controls and Basic Latin: 0000 - 007F
+    '..................................................................................
+'   Null                        "Start Of Heading"          "Start Of Text"
+:   C0_NUL:                     C0_SOH:                     C0_STX
+'   "End of TeXt"               "End Of Transmission"       "Enquiry"
+:   C0_ETX:                     C0_EOT:                     C0_ENQ
+'   "Acknowledge"               "Bell"                      "Backspace"
+:   C0_ACK:                     C0_BEL:                     C0_BS
+'   "Horizontal Tab"            "Line Feed"                 "Vertical Tab"
+:   C0_HT:                      C0_LF:                      C0_VT
+'   "Form Feed"                 "Carriage Return"           "Shift Out"
+:   C0_FF:                      C0_CR:                      C0_SO
+'   "Shift In"                  "Data Link Escape"          "Device Control One"
+:   C0_SI:                      C0_DLE:                     C0_DC1
+'   "Device Control Two"        "Device Control Three"      "Device Control Four"
+:   C0_DC2:                     C0_DC3:                     C0_DC4
+'   "Negative Acknowledge"      "Synchronous Idle"          "End of Transmission Block"
+:   C0_NAK:                     C0_SYN:                     C0_ETB
+'   "Cancel"                    "End of Medium"             "Substitute"
+:   C0_CAN:                     C0_EM:                      C0_SUB
+'   "Escape"                    "File Separator"            "Group Separator"
+:   C0_ESC:                     C0_FS:                      C0_GS
+'   "Record Separator"          "Unit Separator"
+:   C0_RS:                      C0_US
+    
+'                               !                           "
+:   SPACE_:                     EXCLAMATION_MARK:           QUOTATION_MARK
+'   #                           $                           %
+:   NUMBER_SIGN:                DOLLAR_SIGN:                PERCENT_SIGN
+'   &                           '                           (
+:   AMPERSAND:                  APOSTROPHE:                 LEFT_PARENTHESIS
+'   )                           *                           +
+:   RIGHT_PARENHESIS:           ASTERISK:                   PLUS_SIGN
+'   ,                           -                           .
+:   COMMA:                      HYPHEN_MINUS:               FULL_STOP
+'   /                           0                           1
+:   SOLIDUS:                    DIGIT_ZERO:                 DIGIT_ONE
+'   2                           3                           4
+:   DIGIT_TWO:                  DIGIT_THREE:                DIGIT_FOUR
+'   5                           6                           7
+:   DIGIT_FIVE:                 DIGIT_SIX:                  DIGIT_SEVEN
+'   8                           9                           :
+:   DIGIT_EIGHT:                DIGIT_NINE:                 COLON
+'   ;                           <                           =
+:   SEMICOLON:                  LESS_THAN_SIGN:             EQUALS_SIGN
+'   >                           ?                           @
+:   GREATER_THAN_SIGN:          QUESTION_MARK:              COMMERCIAL_AT
+    
+:   LATIN_CAPITAL_LETTER_A:     LATIN_CAPITAL_LETTER_B:     LATIN_CAPITAL_LETTER_C
+:   LATIN_CAPITAL_LETTER_D:     LATIN_CAPITAL_LETTER_E:     LATIN_CAPITAL_LETTER_F
+:   LATIN_CAPITAL_LETTER_G:     LATIN_CAPITAL_LETTER_H:     LATIN_CAPITAL_LETTER_I
+:   LATIN_CAPITAL_LETTER_J:     LATIN_CAPITAL_LETTER_K:     LATIN_CAPITAL_LETTER_L
+:   LATIN_CAPITAL_LETTER_M:     LATIN_CAPITAL_LETTER_N:     LATIN_CAPITAL_LETTER_O
+:   LATIN_CAPITAL_LETTER_P:     LATIN_CAPITAL_LETTER_Q:     LATIN_CAPITAL_LETTER_R
+:   LATIN_CAPITAL_LETTER_S:     LATIN_CAPITAL_LETTER_T:     LATIN_CAPITAL_LETTER_U
+:   LATIN_CAPITAL_LETTER_V:     LATIN_CAPITAL_LETTER_W:     LATIN_CAPITAL_LETTER_X
+:   LATIN_CAPITAL_LETTER_Y:     LATIN_CAPITAL_LETTER_Z
+    
+'   [                           \                           ]
+:   LEFT_SQUARE_BRACKET:        REVERSE_SOLIDUS:            RIGHT_SQUARE_BRACKET
+'   ^                           _                           `
+:   CIRCUMFLEX_ACCENT:          LOW_LINE:                   GRAVE_ACCENT
+    
+:   LATIN_SMALL_LETTER_A:       LATIN_SMALL_LETTER_B:       LATIN_SMALL_LETTER_C
+:   LATIN_SMALL_LETTER_D:       LATIN_SMALL_LETTER_E:       LATIN_SMALL_LETTER_F
+:   LATIN_SMALL_LETTER_G:       LATIN_SMALL_LETTER_H:       LATIN_SMALL_LETTER_I
+:   LATIN_SMALL_LETTER_J:       LATIN_SMALL_LETTER_K:       LATIN_SMALL_LETTER_L
+:   LATIN_SMALL_LETTER_M:       LATIN_SMALL_LETTER_N:       LATIN_SMALL_LETTER_O
+:   LATIN_SMALL_LETTER_P:       LATIN_SMALL_LETTER_Q:       LATIN_SMALL_LETTER_R
+:   LATIN_SMALL_LETTER_S:       LATIN_SMALL_LETTER_T:       LATIN_SMALL_LETTER_U
+:   LATIN_SMALL_LETTER_V:       LATIN_SMALL_LETTER_W:       LATIN_SMALL_LETTER_X
+:   LATIN_SMALL_LETTER_Y:       LATIN_SMALL_LETTER_Z
+
+'   {                           |                           }
+:   LEFT_CURLY_BRACKET:         VERTICAL_LINE:              RIGHT_CURLY_BRACKET
+'   ~                           "Delete"
+:   TILDE:                      C0_DEL
+End Enum
+
+'Memory manipulation: _
+ --------------------------------------------------------------------------------------
 
 'Copy raw memory from one place to another _
  <msdn.microsoft.com/en-us/library/windows/desktop/aa366535%28v=vs.85%29.aspx>
@@ -388,6 +474,9 @@ Public Property Get Buffer() As BUFFER_SIZE: Let Buffer = My_Buffer: End Propert
 Public Property Let Buffer( _
     ByRef Length As BUFFER_SIZE _
 )
+    'No change in buffer?
+    If Length = My_Buffer Then Exit Property
+    
     'The buffer cannot be set to zero or a negative number. _
      We won't bother throwing an error as it won't affect behaviour
     If Length <= 0 Then
@@ -428,7 +517,7 @@ End Property
 '======================================================================================
 Public Property Get Char( _
     ByVal Index As Long _
-) As Long
+) As UCS2
     'NOTE: Though `My_Length` is 1-based, but `Index` is 0-based, we allow the user _
            to access the spare element at the end as it will be the null terminator, _
            which the end-user may wish to check for (blind-looping, for example)
@@ -453,7 +542,7 @@ Public Property Get Char( _
 End Property
 Public Property Let Char( _
     ByVal Index As Long, _
-    ByVal Char As Long _
+    ByVal Char As UCS2 _
 )
     'If a character index is provided outside of the length of the string, error. _
      (note that, compared to the getter, you may not write to the null terminator)
@@ -482,7 +571,7 @@ End Property
 '======================================================================================
 Public Function CharInsert( _
     ByVal Index As Long, _
-    ByVal Char As Long _
+    ByVal Char As UCS2 _
 ) As bluString
     'Allow method chaining
     Set CharInsert = Me
@@ -685,7 +774,7 @@ End Property
 '======================================================================================
 'Returns        | A Unicode character point (0 to 65535)
 '======================================================================================
-Public Function CharPull() As Long
+Public Function CharPull() As UCS2
     'If there are no characters, just return null
     If My_Length = 0 Then Exit Function
     'Return the character value in question _
@@ -703,7 +792,7 @@ End Function
 'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function CharPush( _
-    ByVal Char As Long _
+    ByVal Char As UCS2 _
 ) As bluString
     'Allow method chaining
     Set CharPush = Me
@@ -732,7 +821,7 @@ End Function
 '======================================================================================
 Public Function CharRemove( _
     Optional ByVal Index As Long = 0 _
-) As Long
+) As UCS2
     'Check the character index is within range, _
      a negative Index will work backwards from the end of the string
     If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
@@ -960,19 +1049,19 @@ Public Function Format( _
     If Last < First Then Exit Function
     
     'For non-String parameters, we will do the String conversion, but we will need _
-     somewhere to store them so that we can get at their pointers. The bluStringArray _
+     somewhere to store them so that we can get at their pointers. The bluArrayString _
      provides an easy means of managing the text, length and pointer for each.
     'There are APIs for doing String conversion <vbforums.com/showthread.php?736407> _
      but `CStr` is probably already using this behind the scenes. Also, rolling your _
      own String conversion is actually super difficult _
      <serpentine.com/blog/2011/06/29/here-be-dragons>
-    Dim Strings As bluStringArray
-    Set Strings = New bluStringArray
+    Dim Strings As bluArrayString
+    Set Strings = New bluArrayString
     
     'Walk the params provided, converting them to Strings.
     Dim Param As Long
     For Param = First To Last
-        Call PushFormatParam(Params(Param), Strings)
+        Call Strings.AddVariant(Params(Param))
     Next Param
     
     '----------------------------------------------------------------------------------
@@ -999,7 +1088,7 @@ Continue:
      to remove parts of our string and vice-versa. Work out the impact the _
      replacement will have on the length of our string
     Dim Difference As Long
-    Let Difference = Strings.Item(Param).Length - Len(FORMAT_MARKER)
+    Let Difference = Strings.Length(Param) - Len(FORMAT_MARKER)
     
     'Search for the format marker
     Dim ResultPointer As Long
@@ -1019,7 +1108,7 @@ Continue:
         'Replace the marker
         Call api_RtlMoveMemory( _
             ResultPointer, _
-            Strings.Item(Param).Pointer, Strings.Item(Param).LengthBytes _
+            Strings.Pointer(Param), Strings.LengthBytes(Param) _
         )
     Else
         'Calculate the remainder portion of our string that will be moved
@@ -1040,7 +1129,7 @@ Continue:
         
         'Shift up or down the remainder portion of our string
         Call api_RtlMoveMemory( _
-            ResultPointer + Strings.Item(Param).LengthBytes, _
+            ResultPointer + Strings.LengthBytes(Param), _
             ResultPointer + MarkerLengthB, _
             Remainder _
         )
@@ -1057,12 +1146,12 @@ Continue:
         
         'Copy the replacement string in
         Call api_RtlMoveMemory( _
-            ResultPointer, Strings.Item(Param).Pointer, Strings.Item(Param).LengthBytes _
+            ResultPointer, Strings.Pointer(Param), Strings.LengthBytes(Param) _
         )
     End If
     
     'We don't want an infinite loop, so move our search pointer over the replacement
-    Let StartPointer = ResultPointer + Strings.Item(Param).LengthBytes
+    Let StartPointer = ResultPointer + Strings.LengthBytes(Param)
     'Move onto the next parameter
     Let Param = Param + 1: If Param = Strings.Count Then GoTo Finish
     'Proceed with the next search
@@ -1228,29 +1317,32 @@ Public Property Let Length( _
     'Store the new desired content length (1-based)
     Let My_Length = NewLength: Let My_LengthB = My_Length * 2
     'If the buffer has not been initialised, start with the default length
-    If My_Buffer = 0 Then Let My_Buffer = DEFAULT_BUFFER
+    Dim NewBuffer As Long
+    If My_Buffer = 0 _
+        Then Let NewBuffer = DEFAULT_BUFFER _
+        Else Let NewBuffer = My_Buffer
     
 TestBuffer:
     'If this increases the data too large...
-    If My_Length > My_Buffer Then
+    If My_Length > NewBuffer Then
         'If the buffer is already at maximum then we've hit the absolute limit _
          (VB Error #14 is "Out of String Space")
-        If My_Buffer = BUFFER_MAX Then Err.Raise (14): Exit Property
+        If NewBuffer = BUFFER_MAX Then Err.Raise (14): Exit Property
         'In the case of custom buffer sizes, doubling the buffer might go over the _
          limit, but there may still be enough room for the new length if we just stop _
          at the buffer limit
-        If (My_Buffer * 2) > BUFFER_MAX Then
-            Let My_Buffer = BUFFER_MAX
+        If (NewBuffer * 2) > BUFFER_MAX Then
+            Let NewBuffer = BUFFER_MAX
         Else
             'Double the length of the buffer
-            Let My_Buffer = My_Buffer * 2
+            Let NewBuffer = NewBuffer * 2
         End If
         'Re-check if this is large enough
         GoTo TestBuffer
     End If
     'Apply the new buffer length _
      (this will do the actual memory allocation)
-    Let Me.Buffer = My_Buffer
+    Let Me.Buffer = NewBuffer
     
     'WARNING: Increasing the content-length via this property, instead of by-proxy _
      via methods such as `Append` may leave 'junk' data in the increased space!
@@ -1394,7 +1486,7 @@ Public Function ReduceBuffer() As bluString
     'Allow method chaining
     Set ReduceBuffer = Me
     'Reduce the buffer down to the size of the string
-    Let Me.Length = My_Buffer
+    Let Me.Buffer = My_Length
 End Function
 
 'Remove : Cut some text out of the middle of the existing string
@@ -1635,9 +1727,9 @@ Continue:
     'Walk along the left of the string looking for whitespace/blank characters
     Dim Index As Long
     Dim Props As C1
+    Let Props = Me.CharProperties(Index)
     
     'If the character is whitespace, or not a defined Unicode point, then ...
-    Let Props = Me.CharProperties(Index)
     If ((Props And C1_WHITESPACE) <> 0) Or ((Props And C1_DEFINED) = 0) Then
         'Move along to the next char
         Let Index = Index + 1
@@ -1748,61 +1840,6 @@ End Function
 
 '/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
 
-'PushFormatParam : Convert Variants to bluStrings, including recursive array walking
-'======================================================================================
-'Param          | Some value of any type, including arrays
-'IntoStringArray| The bluStringArray which will hold the converted param
-'======================================================================================
-Private Sub PushFormatParam( _
-    ByRef Param As Variant, _
-    ByRef IntoStringArray As bluStringArray _
-)
-    'Check the type of the parameter (Long, String, Double &c.)
-    Dim ParamType As VBA.VbVarType
-    Let ParamType = VarType(Param)
-       
-    Dim i As Long
-    Select Case ParamType
-        'These types can be converted to a String
-        Case vbString, vbBoolean, vbByte, vbCurrency, vbDate, vbDecimal, _
-             vbDouble, vbEmpty, vbError, vbInteger, vbLong, vbSingle
-            '..........................................................................
-            Call IntoStringArray.Add(CStr(Param))
-            
-        Case vbObject
-            '..........................................................................
-            'If this is a bluString, use its string without cloning it. For _
-             other objects, we can't cast to String. Raise "Type Mismatch" error
-            If TypeOf Param Is bluString Then
-                '`Var2bluString` converts the Variant Object type into a class _
-                 reference to allow the strong-typed function call
-                Call IntoStringArray.AddBluString(Var2bluString(Param))
-            
-            'Walk a bluStringArray
-            ElseIf TypeOf Param Is bluStringArray Then
-                For i = 0 To Param.Count - 1
-                    Call IntoStringArray.AddBluString(Var2bluString(Param.Item(i)))
-                Next i
-            Else
-                Err.Raise (13)
-            End If
-            
-        'Note that vbArray is combined with the data type inside the array, _
-         typical Variant too, i.e. `vbArray + vbVariant`
-        Case Is >= vbArray
-            '..........................................................................
-            'Arrays need to be walked, pushing each value as its own parameter
-            For i = LBound(Param) To UBound(Param)
-                Call PushFormatParam(Param(i), IntoStringArray)
-            Next i
-            
-        Case Else
-            '..........................................................................
-            'All other data types can't be co-erced
-            Err.Raise (13)
-    End Select
-End Sub
-
 'UnsafePointer : Gets a pointer to the string, without validation -- internal use
 '======================================================================================
 '[Index]        | Position within our string (0-based)
@@ -1866,7 +1903,7 @@ End Function
 'Returns        | False for an invalid Char, True for a valid one
 '======================================================================================
 Private Function ValidateChar( _
-    ByRef Char As Long _
+    ByRef Char As UCS2 _
 ) As Boolean
     'If the character code is negative, it might be from a signed-Integer
     If Char < 0 Then

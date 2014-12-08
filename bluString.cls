@@ -49,8 +49,6 @@ Option Explicit
 'This enum is provided to make working with Character Codes more readable and obvious. _
  The data for this was taken from <danshort.com/unicode>
 Public Enum UCS2
-    'C0 Controls and Basic Latin: 0000 - 007F
-    '..................................................................................
 '   Null                        "Start Of Heading"          "Start Of Text"
 :   C0_NUL:                     C0_SOH:                     C0_STX
 '   "End of TeXt"               "End Of Transmission"       "Enquiry"
@@ -1055,8 +1053,8 @@ Public Function Format( _
      but `CStr` is probably already using this behind the scenes. Also, rolling your _
      own String conversion is actually super difficult _
      <serpentine.com/blog/2011/06/29/here-be-dragons>
-    Dim Strings As bluArrayString
-    Set Strings = New bluArrayString
+    Dim Strings As bluArrayStrings
+    Set Strings = New bluArrayStrings
     
     'Walk the params provided, converting them to Strings.
     Dim Param As Long
@@ -1073,7 +1071,7 @@ Public Function Format( _
     'Begin with our constructed string array, which may be longer than the input _
      params due to Variant arrays. As we find each marker, we'll move to the string. _
      It's possible there will be too many or too few markers
-    Let Param = 0
+    Let Param = 1
     
     'The API returns a pointer in the string, not an index. Since replacements could _
      extend the string such that it gets reallocated we cannot rely on a pointer _
@@ -1153,7 +1151,7 @@ Continue:
     'We don't want an infinite loop, so move our search pointer over the replacement
     Let StartPointer = ResultPointer + Strings.LengthBytes(Param)
     'Move onto the next parameter
-    Let Param = Param + 1: If Param = Strings.Count Then GoTo Finish
+    Let Param = Param + 1: If Param > Strings.Count Then GoTo Finish
     'Proceed with the next search
     GoTo Continue
     

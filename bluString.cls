@@ -20,9 +20,8 @@ Option Explicit
 'CLASS :: bluString
 
 'Dependencies       bluArrayString.bas (See `Format` method)
-'Last Updated       06-DEC-14
-'Last Update        Switched to bluArrayString so that Variant conversion does not _
-                    need to be done here
+'Last Updated       14-DEC-14
+'Last Update        Added `Overwrite` method
 
 '--------------------------------------------------------------------------------------
 
@@ -1382,14 +1381,33 @@ Public Function Mid( _
     Let Me.Length = Length
 End Function
 
-''Normalize : Fix inconsistent use of Unicode encoding
-''======================================================================================
-'Public Function Normalize() As bluString
-'    'Allow method chaining
-'    Set Normalize = Me
-'   'NOTE: Vista+ only _
-     http://msdn.microsoft.com/en-gb/library/windows/desktop/dd319093(v=vs.85).aspx
-'End Function
+'Overwrite : Overwrite a portion of our string with text
+'======================================================================================
+'Index          | Position within string (0-based). Can be negative, in which case
+'               | the Index is calculated from the end of the string working backwards
+'Text           | New text to overwrite our string at the given Index
+'---------------+----------------------------------------------------------------------
+'Returns        | This class object (method chaining)
+'======================================================================================
+Public Function Overwrite( _
+    ByVal Index As Long, _
+    ByRef Text As String _
+) As bluString
+    'Allow method chaining
+    Set Overwrite = Me
+    
+    'Null-string won't change anything!
+    If Len(Text) = 0 Then Exit Function
+    
+    'Validate the range: _
+     * A negative Index will work backwards from the end of our string _
+     * If the length of the new text overhangs our string, it will be clipped
+    Dim Length As Long: Let Length = Len(Text)
+    If Not ValidateRange(Index, Length) Then Err.Raise (9): Exit Function
+    
+    'Now just copy the new text over the top of our string
+    Call api_RtlMoveMemory(UnsafePointer(Index), StrPtr(Text), Length * 2)
+End Function
 
 'Pointer : Allow access to the "string" pointer for external copying
 '======================================================================================
@@ -1883,16 +1901,6 @@ Private Sub UnsafeCopyString( _
     )
 End Sub
 
-'Var2bluString : Casts a Variant to a bluString class (for use with `Format`)
-'======================================================================================
-'Obj            | A Variant, hopefully containing a bluString!)
-'---------------+----------------------------------------------------------------------
-'Returns        | An actual bluString! (for strcit type handling)
-'======================================================================================
-Private Function Var2bluString(ByRef Obj As Variant) As bluString
-    Set Var2bluString = Obj
-End Function
-
 'ValidateChar : Validates a Unicode character code
 '======================================================================================
 'Char           | A Unicode character code (0 to 65535) or a negative number
@@ -1982,6 +1990,11 @@ Private Function ValidateRange( _
         If Length = 0 Then Let Length = My_Length - Index
         'Length cannot be negative
         If Length >= 0 Then
+            'The range cannot hang over the end of our string
+            If (Index + Length) > My_Length Then
+                'Clip the range to the end of our string
+                Let Length = My_Length - Index
+            End If
             'The Length must not be longer than the remainder of the string
             If (My_Length - Index - Length) >= 0 Then
                 Let ValidateRange = True

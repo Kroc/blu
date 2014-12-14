@@ -159,7 +159,7 @@ Public Property Get Index( _
     Dim i As Long
     For i = 1 To My_Count
         'Do the comparison with our array, and return if matched
-        If Comparison.Equals(SearchFor) Then Let Index = i: Exit Property
+        If Comparison.Equals(My_Strings(i)) Then Let Index = i: Exit Property
     Next i
 End Property
 

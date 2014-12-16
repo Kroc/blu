@@ -21,7 +21,7 @@ Option Explicit
 
 'Dependencies       bluArrayStrings.bas [bluArray.bas]
 'Last Updated       16-DEC-14
-'Last Update        Changed format marker to conflict less with "$"
+'Last Update        Fixed `Format` failing with duplicate values
 
 '--------------------------------------------------------------------------------------
 
@@ -1054,6 +1054,7 @@ Public Function Format( _
      <serpentine.com/blog/2011/06/29/here-be-dragons>
     Dim Strings As bluArrayStrings
     Set Strings = New bluArrayStrings
+    Let Strings.AllowDuplicates = True
     
     'Walk the params provided, converting them to Strings.
     Dim Param As Long

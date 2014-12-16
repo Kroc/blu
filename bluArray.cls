@@ -21,7 +21,7 @@ Option Explicit
 
 'Dependencies       None
 'Last Updated       16-DEC-14
-'Last Update        Initial version
+'Last Update        Added `AllowDuplicates`, `Clear`
 
 '--------------------------------------------------------------------------------------
 
@@ -35,14 +35,22 @@ Public Sub AddVariant( _
     ByRef AddVar As Variant _
 ): End Sub
 
+'AllowDuplicates : Allow adding of duplicate values
+'======================================================================================
+Public Property Get AllowDuplicates() As Boolean: End Property
+Public Property Let AllowDuplicates(ByVal Mode As Boolean): End Property
+
 'AsString : Return an item in the array as a String equivilent
 '======================================================================================
 Public Property Get AsString( _
     ByVal Index As Long _
 ) As String: End Sub
 
+'Clear : Empty the array
+'======================================================================================
+Public Sub Clear(): End Sub
+
 'Count : The number of items in the array (1-based), 0 = none
 '======================================================================================
 Public Property Get Count( _
 ) As Long: End Property
-

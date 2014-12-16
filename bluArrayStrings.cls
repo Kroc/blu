@@ -21,7 +21,7 @@ Option Explicit
 
 'Dependencies       bluArray.bas, bluString.bas
 'Last Updated       16-DEC-14
-'Last Update        Started implementing the generic 'bluArray' interface
+'Last Update        Implemented `AllowDuplicates`, `Clear`
 
 '--------------------------------------------------------------------------------------
 
@@ -43,6 +43,10 @@ Private My_Count As Long                'Number of Strings in the array (1-based
 'String comparison will be case-insensitive by default
 Private My_CaseSensitive As Long
 
+'A duplicate String will give the already-existing String's index, _
+ unless you toggle the `AllowDuplicates` property
+Private My_AllowDuplicates As Boolean
+
 '/// EVENTS ///////////////////////////////////////////////////////////////////////////
 
 'CLASS Terminate
@@ -54,6 +58,47 @@ End Sub
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
 
+'<bluArray>_AddVariant
+'======================================================================================
+'This is the bluArray interface when handling a generic 'bluArray' reference object
+Private Sub bluArray_AddVariant( _
+    ByRef AddVar As Variant _
+)   'Simply pass this on to the internal implementation
+    Call AddVariant(AddVar)
+End Sub
+
+'<bluArray>_AllowDuplicates
+'======================================================================================
+Private Property Get bluArray_AllowDuplicates() As Boolean
+    Let bluArray_AllowDuplicates = My_AllowDuplicates
+End Property
+Private Property Let bluArray_AllowDuplicates( _
+    ByVal Mode As Boolean _
+)
+    Let My_AllowDuplicates = Mode
+End Property
+
+'<bluArray>_AsString
+'======================================================================================
+'Index          | An Index number for the array contents
+'---------------+----------------------------------------------------------------------
+'Returns        | The VB String in the array at the given Index
+'======================================================================================
+Private Property Get bluArray_AsString( _
+    ByVal Index As Long _
+) As String
+    Let bluArray_AsString = Item(Index)
+End Property
+
+'<bluArray>_Clear
+'======================================================================================
+Private Sub bluArray_Clear(): Call Clear: End Sub
+
+'<bluArray>_Count
+'======================================================================================
+'When talking to a generic bluArray, implement the interface
+Private Property Get bluArray_Count() As Long: Let bluArray_Count = My_Count: End Property
+
 'Add : Add a VB String to our array
 '======================================================================================
 'Text           | A VB String to add to our array
@@ -63,10 +108,16 @@ End Sub
 Public Function Add( _
     ByRef Text As String _
 ) As Long
-    'Check if the String already exists
-    Let Add = Index(Text)
-    'If not, increase the array and get the next index to use
-    If Add = 0 Then Let Add = Increase()
+    'Are duplicates allowed?
+    If My_AllowDuplicates Then
+        'Increase the array
+        Let Add = Increase()
+    Else
+        'Check if the String already exists
+        Let Add = Index(Text)
+        'If not, increase the array and get the next index to use
+        If Add = 0 Then Let Add = Increase()
+    End If
     'And add the text
     Let My_Strings(Add) = Text
 End Function
@@ -77,12 +128,6 @@ End Function
 '======================================================================================
 'This is the public interface when handling a 'bluArrayStrings' instance directly
 Public Sub AddVariant( _
-    ByRef AddVar As Variant _
-)   'Simply pass this on to the internal implementation
-    Call bluArray_AddVariant(AddVar)
-End Sub
-'This is the bluArray interface when handling a generic 'bluArray' reference object
-Private Sub bluArray_AddVariant( _
     ByRef AddVar As Variant _
 )
     'We don't want to calculate array bounds on every loop
@@ -129,21 +174,15 @@ Private Sub bluArray_AddVariant( _
     End Select
 End Sub
 
-'<bluArray>_AsString
+'AllowDuplicates
 '======================================================================================
-'Index          | An Index number for the array contents
-'---------------+----------------------------------------------------------------------
-'Returns        | The VB String in the array at the given Index
-'======================================================================================
-Private Property Get bluArray_AsString( _
-    ByVal Index As Long _
-) As String
-    'If there are no items in the array, we're out of bounds whatever the Index is
-    If My_Count = 0 Then Err.Raise (9): Exit Property
-    'Is the index within bounds?
-    If (Index < 1) Or (Index > My_Count) Then Err.Raise (9): Exit Property
-    'Return the VB String from our array
-    Let bluArray_AsString = My_Strings(Index)
+Public Property Get AllowDuplicates() As Boolean
+    Let AllowDuplicates = My_AllowDuplicates
+End Property
+Public Property Let AllowDuplicates( _
+    ByVal Mode As Boolean _
+)
+    Let My_AllowDuplicates = Mode
 End Property
 
 'CaseSensitive : Turn case-sensitivity on or off
@@ -158,13 +197,11 @@ End Property
 'Clear : Empty the array
 '======================================================================================
 Public Sub Clear()
-    Erase My_Strings
+    Erase My_Strings: Let My_Count = 0
 End Sub
 
 'Count : Number of Strings in our array
 '======================================================================================
-'When talking to a generic bluArray, implement the interface
-Private Property Get bluArray_Count() As Long: Let bluArray_Count = My_Count: End Property
 'This is the public interface for working directly with bluArrayStrings
 Public Property Get Count() As Long: Let Count = My_Count: End Property
 

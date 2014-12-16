@@ -19,9 +19,9 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluString
 
-'Dependencies       bluArrayString.bas (See `Format` method)
-'Last Updated       14-DEC-14
-'Last Update        Added `Overwrite` method
+'Dependencies       bluArrayStrings.bas [bluArray.bas]
+'Last Updated       16-DEC-14
+'Last Update        Changed format marker to conflict less with "$"
 
 '--------------------------------------------------------------------------------------
 
@@ -395,7 +395,7 @@ End Enum
 
 'The marker used for formatting strings. As a constant here, it saves VB allocating _
  and deallocating a temporary String everytime we mention it
-Private Const FORMAT_MARKER = "$$"
+Private Const FORMAT_MARKER As String = "{$}"
 
 'Case-sensitivity in methods such as `Format` and `LCase`/`UCase` is controlled _
  across the class by a property
@@ -409,7 +409,7 @@ Private My_CaseSensitive As Long
 
 'This is the official polynomial used by CRC32 in PKZip. _
  Often the polynomial is shown reversed (04C11DB7)
-Const CRC_POLYNOMIAL As Long = &HEDB88320
+Private Const CRC_POLYNOMIAL As Long = &HEDB88320
 
 'A lookup table needs to be built for calculating the CRC, but we will delay this _
  until needed as it takes time and adds 1 KB to the memory usage

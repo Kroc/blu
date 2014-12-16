@@ -17,19 +17,23 @@ Option Explicit
 'Licenced under a Creative Commons 3.0 Attribution Licence
 '--You may use and modify this code how you see fit as long as you give credit
 '======================================================================================
-'CLASS :: bluArrayString
+'CLASS :: bluArrayStrings
 
-'Dependencies       bluString.bas
-'Last Updated       08-DEC-14
-'Last Update        Changed to a 1-based array to make certain aspects simpler and _
-                    support an Index property to return the Index given a string, _
-                    or 0 for 'not found'. This is more practical for the caller than _
-                    checking for existance and then finding the Index number
+'Dependencies       bluArray.bas, bluString.bas
+'Last Updated       16-DEC-14
+'Last Update        Started implementing the generic 'bluArray' interface
 
 '--------------------------------------------------------------------------------------
 
 'This is a class to make handling an array of Strings much easier to manage without _
  polluting your own code with redimming and bounds checking
+
+'--------------------------------------------------------------------------------------
+
+'We implement the bluArray interface, which provides a means of accessing _
+ bluArrayStrings, bluArrayLongs etc without having to know which type your _
+ instance is (e.g. when in a Variant / Object)
+Implements bluArray
 
 '/// CLASS ////////////////////////////////////////////////////////////////////////////
 
@@ -71,7 +75,14 @@ End Function
 '======================================================================================
 'AddVar         | Some value of any type, including arrays
 '======================================================================================
+'This is the public interface when handling a 'bluArrayStrings' instance directly
 Public Sub AddVariant( _
+    ByRef AddVar As Variant _
+)   'Simply pass this on to the internal implementation
+    Call bluArray_AddVariant(AddVar)
+End Sub
+'This is the bluArray interface when handling a generic 'bluArray' reference object
+Private Sub bluArray_AddVariant( _
     ByRef AddVar As Variant _
 )
     'We don't want to calculate array bounds on every loop
@@ -109,7 +120,7 @@ Public Sub AddVariant( _
             '..........................................................................
             'Arrays need to be walked, pushing each value as its own parameter
             Let First = LBound(AddVar): Let Last = UBound(AddVar)
-            For i = First To Last: Call AddVariant(AddVar(i)): Next i
+            For i = First To Last: Call bluArray_AddVariant(AddVar(i)): Next i
             
         Case Else
             '..........................................................................
@@ -117,6 +128,23 @@ Public Sub AddVariant( _
             Err.Raise (13)
     End Select
 End Sub
+
+'<bluArray>_AsString
+'======================================================================================
+'Index          | An Index number for the array contents
+'---------------+----------------------------------------------------------------------
+'Returns        | The VB String in the array at the given Index
+'======================================================================================
+Private Property Get bluArray_AsString( _
+    ByVal Index As Long _
+) As String
+    'If there are no items in the array, we're out of bounds whatever the Index is
+    If My_Count = 0 Then Err.Raise (9): Exit Property
+    'Is the index within bounds?
+    If (Index < 1) Or (Index > My_Count) Then Err.Raise (9): Exit Property
+    'Return the VB String from our array
+    Let bluArray_AsString = My_Strings(Index)
+End Property
 
 'CaseSensitive : Turn case-sensitivity on or off
 '======================================================================================
@@ -135,6 +163,9 @@ End Sub
 
 'Count : Number of Strings in our array
 '======================================================================================
+'When talking to a generic bluArray, implement the interface
+Private Property Get bluArray_Count() As Long: Let bluArray_Count = My_Count: End Property
+'This is the public interface for working directly with bluArrayStrings
 Public Property Get Count() As Long: Let Count = My_Count: End Property
 
 'Index : Get the Index number for a string in the array

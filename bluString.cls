@@ -19,7 +19,7 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluString
 
-'Dependencies       bluArrayStrings.bas [bluArray.bas]
+'Dependencies       bluArrayStrings.bas, <bluArray.bas>
 'Last Updated       16-DEC-14
 'Last Update        Fixed `Format` failing with duplicate values
 

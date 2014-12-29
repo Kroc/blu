@@ -19,9 +19,9 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluArrayStrings
 
-'Dependencies       bluArray.bas, bluString.bas
-'Last Updated       16-DEC-14
-'Last Update        Implemented `AllowDuplicates`, `Clear`
+'Dependencies       <bluArray.bas>, bluString.bas
+'Last Updated       29-DEC-14
+'Last Update        Added generic `bluArray` walking in `AddVariant`
 
 '--------------------------------------------------------------------------------------
 
@@ -52,22 +52,22 @@ Private My_AllowDuplicates As Boolean
 'CLASS Terminate
 '======================================================================================
 Private Sub Class_Terminate()
-    'This will unload each of the bluStrings in our array
+    'This will unload each of the Strings in our array
     Erase My_Strings
 End Sub
 
-'/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
+'/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
+'blu's Array classes can be generically handled using `bluArray`
 
-'<bluArray>_AddVariant
+'<bluArray>_AddVariant : Add a Variant to the array, converting to the correct type
 '======================================================================================
-'This is the bluArray interface when handling a generic 'bluArray' reference object
 Private Sub bluArray_AddVariant( _
     ByRef AddVar As Variant _
 )   'Simply pass this on to the internal implementation
     Call AddVariant(AddVar)
 End Sub
 
-'<bluArray>_AllowDuplicates
+'<bluArray>_AllowDuplicates : Property to allow duplicate values to be added
 '======================================================================================
 Private Property Get bluArray_AllowDuplicates() As Boolean
     Let bluArray_AllowDuplicates = My_AllowDuplicates
@@ -96,8 +96,9 @@ Private Sub bluArray_Clear(): Call Clear: End Sub
 
 '<bluArray>_Count
 '======================================================================================
-'When talking to a generic bluArray, implement the interface
 Private Property Get bluArray_Count() As Long: Let bluArray_Count = My_Count: End Property
+
+'/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
 
 'Add : Add a VB String to our array
 '======================================================================================
@@ -151,21 +152,25 @@ Public Sub AddVariant( _
             If TypeOf AddVar Is bluString Then
                 Call Add(AddVar.Text)
                 
-            'Walk another bluArrayString
-            ElseIf TypeOf AddVar Is bluArrayStrings Then
-                Let First = 1: Let Last = AddVar.Count
-                For i = First To Last: Call Add(AddVar.Item(i)): Next i
+            'Walk another bluArray
+            ElseIf TypeOf AddVar Is bluArray Then
+                'Cast the Variant to a generic bluArray interface
+                Dim ArrObj As bluArray
+                Set ArrObj = AddVar
+                'Now walk the items in the bluArray, convering to Strings
+                Let First = 1: Let Last = ArrObj.Count
+                For i = First To Last: Call Add(ArrObj.AsString(i)): Next i
             Else
                 Err.Raise (13)
             End If
             
-        'Note that vbArray is combined with the data type inside the array, _
+        'Note that `vbArray` is combined with the data type inside the array, _
          including Variant too, i.e. `vbArray + vbVariant`
         Case Is >= vbArray
             '..........................................................................
             'Arrays need to be walked, pushing each value as its own parameter
             Let First = LBound(AddVar): Let Last = UBound(AddVar)
-            For i = First To Last: Call bluArray_AddVariant(AddVar(i)): Next i
+            For i = First To Last: Call AddVariant(AddVar(i)): Next i
             
         Case Else
             '..........................................................................

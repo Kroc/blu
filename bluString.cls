@@ -1478,6 +1478,7 @@ Public Function ReadFile( _
      This is a useful reference for manually reading a file encoding: _
      <stackoverflow.com/questions/15809081/encoding-of-text-files-in-vb-6-0>
     Open FilePath For Input Access Read Lock Write As #FileNumber
+    'TODO: File not found, file too large and other such errors
     Dim Source As String
     Let Source = StrConv(InputB(LOF(FileNumber), FileNumber), vbUnicode)
     

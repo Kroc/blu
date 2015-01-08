@@ -1,7 +1,7 @@
 Attribute VB_Name = "blu"
 Option Explicit
 '======================================================================================
-'blu : A Modern Metro-esque graphical toolkit; Copyright (C) Kroc Camen, 2013-14
+'blu : A Modern Metro-esque graphical toolkit; Copyright (C) Kroc Camen, 2013-15
 'Licenced under a Creative Commons 3.0 Attribution Licence
 '--You may use and modify this code how you see fit as long as you give credit
 '======================================================================================

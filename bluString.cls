@@ -20,8 +20,8 @@ Option Explicit
 'CLASS :: bluString
 
 'Dependencies       bluArrayStrings.bas, <bluArray.bas>
-'Last Updated       16-DEC-14
-'Last Update        Fixed `Format` failing with duplicate values
+'Last Updated       15-JAN-15
+'Last Update        `Left` can now pad the string
 
 '--------------------------------------------------------------------------------------
 
@@ -347,7 +347,7 @@ Private Declare Function api_StrStrI Lib "shlwapi" Alias "StrStrIW" ( _
     ByVal NeedlePointer As Long _
 ) As Long
 
-'/// CLASS STORAGE ////////////////////////////////////////////////////////////////////
+'/// DATA /////////////////////////////////////////////////////////////////////////////
 
 'We'll cache the Windows version here as it's very slow to do this every time _
  we call methods that use alternative APIs for Vista+
@@ -1161,6 +1161,22 @@ Finish:
     Set Strings = Nothing
 End Function
 
+'GetArray : Returns a byte-array copy of our string
+'======================================================================================
+Public Function GetArray( _
+) As Integer()
+    Dim ReturnArray() As Integer
+    
+    'Null-string won't return anything!
+    If My_Length = 0 Then Exit Function
+    'Size the return array to fit our string content (not the buffer)
+    ReDim ReturnArray(0 To My_Length - 1) As Integer
+    'Copy our string into the return array
+    Call api_RtlMoveMemory(VarPtr(ReturnArray(0)), VarPtr(Data(0)), My_LengthB - 2)
+    
+    Let GetArray = ReturnArray
+End Function
+
 'Insert : Insert some text in the middle of the existing string
 '======================================================================================
 'Text           | VB String to insert into our string
@@ -1263,11 +1279,14 @@ End Function
 '======================================================================================
 'Length         | Number of characters to keep of the string. If negative, this will
 '               | be calculated backwards from the end of the string
+'[FillChar]     | If the new Length is longer than our string, the gap will be
+'               | filled with the given character, which defaults to Space
 '---------------+----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function Left( _
-    ByRef Length As Long _
+             ByRef Length As Long, _
+    Optional ByRef FillChar As UCS2 = SPACE_ _
 ) As bluString
     'Allow method chaining
     Set Left = Me
@@ -1276,12 +1295,21 @@ Public Function Left( _
     If Length = 0 Then Call Me.Destroy: Exit Function
     'Trimming to the same length does nothing!
     If Length = My_Length Then Exit Function
-    'You can't increase the length with this!
-    If Length > My_Length Then Err.Raise (9): Exit Function
+    'Increasing the length of our string will fill the gap, _
+     you can use this to left-align strings and numbers
+    If Length > My_Length Then
+        'Remember the current length, where the gap will begin from
+        Dim OldLength As Long
+        Let OldLength = My_Length
+        'Increase the string space
+        Let Me.Length = Length
+        'Fill the new space with the character
+        Dim i As Long
+        For i = OldLength To My_Length - 1: Let Data(i) = FillChar: Next i
     
     'If the position is negative, work out 'x' number of characters before the end of _
      our string. That is, -1 will be the second to last character
-    If Length < 0 Then
+    ElseIf Length < 0 Then
         'The negative position cannot be more than the length of our string
         If Abs(Length) > My_Length Then Err.Raise (9): Exit Function
         'Calculate the new position from the end of our string _

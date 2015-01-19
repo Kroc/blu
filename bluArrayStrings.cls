@@ -20,8 +20,8 @@ Option Explicit
 'CLASS :: bluArrayStrings
 
 'Dependencies       <bluArray.bas>, bluString.bas
-'Last Updated       29-DEC-14
-'Last Update        Added generic `bluArray` walking in `AddVariant`
+'Last Updated       19-JAN-15
+'Last Update        Added a rough `Concatenate` method
 
 '--------------------------------------------------------------------------------------
 
@@ -37,7 +37,7 @@ Implements bluArray
 
 '/// CLASS ////////////////////////////////////////////////////////////////////////////
 
-Private My_Strings() As String          'Our array of VB Strings
+Private My_Data() As String             'Our array of VB Strings
 Private My_Count As Long                'Number of Strings in the array (1-based)
 
 'String comparison will be case-insensitive by default
@@ -53,7 +53,7 @@ Private My_AllowDuplicates As Boolean
 '======================================================================================
 Private Sub Class_Terminate()
     'This will unload each of the Strings in our array
-    Erase My_Strings
+    Erase My_Data
 End Sub
 
 '/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
@@ -120,7 +120,7 @@ Public Function Add( _
         If Add = 0 Then Let Add = Increase()
     End If
     'And add the text
-    Let My_Strings(Add) = Text
+    Let My_Data(Add) = Text
 End Function
 
 'AddVariant : Convert Variants to Strings, including recursive array walking
@@ -202,8 +202,35 @@ End Property
 'Clear : Empty the array
 '======================================================================================
 Public Sub Clear()
-    Erase My_Strings: Let My_Count = 0
+    Erase My_Data: Let My_Count = 0
 End Sub
+
+'Concatenate : Return all Strings in the array as a combined String
+'======================================================================================
+'Returns        | A VB String of the combined array contents
+'======================================================================================
+Public Function Concatenate( _
+) As String
+    'Prepare a bluString buffer large enough for the whole array. _
+     VB's concatenation will be too slow
+    Dim ReturnString As bluString
+    Set ReturnString = New bluString
+    
+    Dim Length As Long, i As Long
+    For i = 1 To My_Count
+        'TODO: Check for overflow
+        Let Length = Length + Len(My_Data(i))
+    Next i
+    
+    Let ReturnString.Buffer = Length
+    
+    For i = 1 To My_Count
+        Call ReturnString.Append(My_Data(i))
+    Next i
+    
+    Let Concatenate = ReturnString.Text
+    Set ReturnString = Nothing
+End Function
 
 'Count : Number of Strings in our array
 '======================================================================================
@@ -232,7 +259,7 @@ Public Property Get Index( _
     Dim i As Long
     For i = 1 To My_Count
         'Do the comparison with our array, and return if matched
-        If Comparison.Equals(My_Strings(i)) Then Let Index = i: Exit Property
+        If Comparison.Equals(My_Data(i)) Then Let Index = i: Exit Property
     Next i
 End Property
 
@@ -251,7 +278,7 @@ Attribute Item.VB_MemberFlags = "200"
     'Is the index within bounds?
     If (Index < 1) Or (Index > My_Count) Then Err.Raise (9): Exit Property
     'Return the VB String from our array
-    Let Item = My_Strings(Index)
+    Let Item = My_Data(Index)
 End Property
 
 'Length : Get the length of a String in the array
@@ -268,7 +295,7 @@ Public Property Get Length( _
     'Is the index within bounds?
     If (Index < 1) Or (Index > My_Count) Then Err.Raise (9): Exit Property
     'Return the length (in characters) of the String in the array
-    Let Length = Len(My_Strings(Index))
+    Let Length = Len(My_Data(Index))
 End Property
 
 'LengthBytes : Get the length of a String in the array, in Bytes
@@ -298,7 +325,7 @@ Public Property Get Pointer( _
     'Is the index within bounds?
     If (Index < 1) Or (Index > My_Count) Then Err.Raise (9): Exit Property
     'Return the String pointer -- be careful with this!
-    Let Pointer = StrPtr(My_Strings(Index))
+    Let Pointer = StrPtr(My_Data(Index))
 End Property
 
 '/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
@@ -312,5 +339,5 @@ Private Function Increase() As Long
     Let My_Count = My_Count + 1
     Let Increase = My_Count
     'Increase the array bounds
-    ReDim Preserve My_Strings(1 To Increase) As String
+    ReDim Preserve My_Data(1 To Increase) As String
 End Function

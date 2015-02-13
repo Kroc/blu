@@ -19,7 +19,7 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluLog
 
-'Dependencies       bluString.bas [bluArrayStrings.bas, <bluArray.bas>]
+'Dependencies       bluString.cls [bluArrayStrings.cls, <bluArray.cls>]
 'Last Updated       19-JAN-15
 'Last Update        Initial implementation
 

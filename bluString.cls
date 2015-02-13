@@ -19,7 +19,7 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluString
 
-'Dependencies       bluArrayStrings.bas, <bluArray.bas>
+'Dependencies       bluArrayStrings.cls, <bluArray.cls>
 'Last Updated       15-JAN-15
 'Last Update        `Left` can now pad the string
 

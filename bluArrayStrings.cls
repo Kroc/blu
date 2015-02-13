@@ -19,7 +19,7 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluArrayStrings
 
-'Dependencies       <bluArray.bas>, bluString.bas
+'Dependencies       <bluArray.cls>, bluString.cls
 'Last Updated       19-JAN-15
 'Last Update        Added a rough `Concatenate` method
 

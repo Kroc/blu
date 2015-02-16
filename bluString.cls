@@ -20,8 +20,9 @@ Option Explicit
 'CLASS :: bluString
 
 'Dependencies       bluArrayStrings.cls, <bluArray.cls>
-'Last Updated       15-JAN-15
-'Last Update        `Left` can now pad the string
+'Last Updated       16-FEB-15
+'Last Update        * Added `TrimRight` method (and `Trim` to complete the set)
+'                   * Added `Truncate` method
 
 '--------------------------------------------------------------------------------------
 
@@ -604,8 +605,8 @@ Public Property Get CharIsAlpha( _
              ByVal Index As Long, _
     Optional ByRef IsASCII As Boolean = False _
 ) As Boolean
-    'Whilst Unicode recognises a wider range of "alpha" characters, it is necessary _
-     to sometimes limit ourselves to just A-Z
+    'Whilst Unicode recognises a wider range of "alpha" characters, _
+     it is sometimes necessary to limit ourselves to just A-Z
     If IsASCII = 0 Then
         'Note that this uses Unicode properties, so covers far more than just A-Z, _
          including accented letters and non-latin alpha letters such as "ß"
@@ -730,7 +731,7 @@ Public Property Get CharIsUpper( _
     Let CharIsUpper = (Me.CharProperties(Index) And C1_UPPER) <> 0
 End Property
 
-'CharIsVisible : Returns true if the character at the index is visible
+'CharIsVisible : Returns true if the character at the index is 'visible'
 '======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
@@ -740,9 +741,9 @@ End Property
 Public Property Get CharIsVisible( _
     ByVal Index As Long _
 ) As Boolean
-    'An "invisible" character is either a Control Code (such as Null), _
+    'An 'invisible' character is either a Control Code (such as Null), _
      or an undefined Unicode point. Zero-width space, whilst technically 'invisible' _
-     in a proportional font still counts as "visible" as it's a defined character
+     in a proportional font still counts as 'visible' as it's a defined character
     Let CharIsVisible = (Me.CharProperties(Index) And C1_VISIBLE) <> 0
 End Property
 
@@ -1028,7 +1029,7 @@ End Function
 
 'Format : Replace markers in the text with the values provided
 '======================================================================================
-'Arguments ...  | An array of values (strings, numbers &c.) to insert
+'Params...      | An array of values (strings, numbers &c.) to insert
 '---------------+----------------------------------------------------------------------
 'Returns        | A new bluString instance, formatted according to our string
 '======================================================================================
@@ -1162,6 +1163,8 @@ Finish:
 End Function
 
 'GetArray : Returns a byte-array copy of our string
+'======================================================================================
+'Returns        | An array of Unicode (UCS-2) Integer points
 '======================================================================================
 Public Function GetArray( _
 ) As Integer()
@@ -1750,20 +1753,25 @@ Public Property Let Text( _
     Let CRCValid = 0
 End Property
 
-''Trim : Strip whitespace characters from the beginning and end
-''======================================================================================
-''TODO: We may want a look-up table of all whitespace chars in UCS-2
-'Public Function Trim() As bluString
-'    'Allow method chaining
-'    Set Trim = Me
-'    'TODO
-'End Function
+'Trim : Strip whitespace characters from the beginning and end
+'======================================================================================
+'Returns        | This class object (method chaining)
+'======================================================================================
+Public Function Trim( _
+) As bluString
+    'Allow method chaining
+    Set Trim = Me
+    'This is just a macro
+    Call TrimLeft
+    Call TrimRight
+End Function
 
 'TrimLeft : Strip whitespace characters from the beginning
 '======================================================================================
 'Returns        | This class object (method chaining)
 '======================================================================================
-Public Function TrimLeft() As bluString
+Public Function TrimLeft( _
+) As bluString
     'Allow method chaining
     Set TrimLeft = Me
     'Null string won't trim!
@@ -1796,13 +1804,156 @@ Continue:
     Let Me.Length = My_Length - Index
 End Function
 
-''TrimRight : Strip whitespace characters from the end
-''======================================================================================
-'Public Function TrimRight() As bluString
-'    'Allow method chaining
-'    Set TrimRight = Me
-'    'TODO
-'End Function
+'TrimRight : Strip whitespace characters from the end
+'======================================================================================
+'Returns        | This class object (method chaining)
+'======================================================================================
+Public Function TrimRight( _
+) As bluString
+    'Allow method chaining
+    Set TrimRight = Me
+    'Null string won't trim!
+    If My_Length = 0 Then Exit Function
+    
+    Dim Index As Long
+    Let Index = My_Length - 1
+    
+Continue:
+    'Walk backwards along the string looking for whitespace/blank characters
+    Dim Props As C1
+    Let Props = Me.CharProperties(Index)
+    
+    'If the character is whitespace, or not a defined Unicode point, then ...
+    If ((Props And C1_WHITESPACE) <> 0) Or ((Props And C1_DEFINED) = 0) Then
+        'Move along to the next char
+        Let Index = Index - 1
+        'Have we hit the beginning of our string?
+        If Index = -1 Then
+            'The whole string is whitespace -- nullify it
+            Call Me.Destroy
+            Exit Function
+        End If
+        'Check the next character
+        GoTo Continue
+    End If
+    
+    'The last non-space character has been found, trim the string here _
+     (this will also invalidate the CRC)
+    Let Me.Length = (Index + 1)
+End Function
+
+'Truncate : Line-break our string to a maximum given length, adding ellipsis if needed
+'======================================================================================
+'MaxLength      | Maximum allowable length of our string. This length is guaranteed,
+'               | as the ellipsis will be placed within this length and not appended
+'[Ellipsis]     | A string to include at the end if our string is clipped short
+'---------------+----------------------------------------------------------------------
+'Returns        | This class object (method chaining)
+'======================================================================================
+Public Function Truncate( _
+             ByVal MaxLength As Long, _
+    Optional ByRef Ellipsis As String = "…" _
+) As bluString
+    'Allow method chaining
+    Set Truncate = Me
+    
+    'Validation:
+    '----------------------------------------------------------------------------------
+    'Truncating to zero will simply return nullstring
+    If MaxLength = 0 Then Call Me.Destroy: Exit Function
+    'Negative length not allowed
+    If MaxLength < 0 Then Call Err.Raise(9): Exit Function
+    
+    'Remove any whitespace from the end of our string! _
+     We don't want our ellipsis hanging in space
+    'TODO: This duplicates a lot of what we're doing in this method, _
+     so we should do this manually here?
+    Call Me.TrimRight
+    
+    'You can't truncate a null-string
+    If My_Length = 0 Then Exit Function
+    'If our string is shorther than the given truncation, no work needs to be done
+    If My_Length <= MaxLength Then Exit Function
+    
+    'Cache length of the ellipsis provided; _
+     when it's longer than one character, we'll need to factor this into truncation
+    Dim EllipsisLength As Long
+    Let EllipsisLength = Len(Ellipsis)
+    
+    'If the ellipsis is longer than the maximum length, we can't possibly truncate! _
+     The only viable solution is to clip the string by ignoring the ellipsis
+    If EllipsisLength > MaxLength Then
+        Let EllipsisLength = 0
+    'If the ellipsis is the same length as the maximum, then our string is inevitably _
+     truncated and we can just replace our string with the ellipsis
+    ElseIf EllipsisLength = MaxLength Then
+        'Replace our string with the ellipsis _
+         (this also clears the CRC)
+        Let Me.Length = EllipsisLength
+        Call UnsafeCopyString(Ellipsis, 0)
+        Exit Function
+    End If
+    
+    'Beyond this point, an ellipsis will inevitably be inserted; this needs to be _
+     within the maximum length given so that the user can rely on the string length _
+     afterwards, therefore assume the ellipsis on the end
+    Let MaxLength = MaxLength - EllipsisLength
+    
+    'Look for white-space:
+    '----------------------------------------------------------------------------------
+    
+    'In general we want to walk backwards from the truncation point looking for the _
+     first space to word-break, however we want to fill the truncated string as much _
+     as possible and don't want to word-break near the beginning of our string due to _
+     a long non-breaking 'word' overlapping the truncation point. For that reason we _
+     will always truncate mid-word at the given point if we can't find a space 15 _
+     letters behind the given truncation point (and ellipsis)
+     
+    'For speed, we'll fetch up to 15 Unicode character properties at once. _
+     If our truncation length is shorter than that, don't overflow the buffer!
+    Dim PropsLength As Long
+    If MaxLength < 15 Then Let PropsLength = MaxLength Else Let PropsLength = 15
+    Dim PropsIndex As Long
+    Let PropsIndex = MaxLength - PropsLength
+    
+    'Call the Windows API to fetch the Unicode character properties
+    'TODO: Handle API errors
+    Dim CharProps(0 To 14) As Integer
+    Call api_GetStringTypeW( _
+                   InfoType:=CT_CTYPE1, _
+        SourceStringPointer:=UnsafePointer(PropsIndex), _
+         SourceStringLength:=PropsLength, _
+            CharTypePointer:=VarPtr(CharProps(0)) _
+    )
+    
+    'Now walk backwards from the truncation point _
+     (`MaxLength` is 1-based, but indexes will be 0-based)
+    Dim i As Long
+    Let i = (MaxLength - 1)
+    Do While i >= 0
+        'If the character is whitespace, or not a defined Unicode point, then ...
+        If ((CharProps(i) And C1_WHITESPACE) <> 0) _
+        Or ((CharProps(i) And C1_DEFINED) = 0) _
+        Then
+            'Whitespace has been found, so truncate here _
+             (this also clears the CRC)
+            Let Me.Length = i + EllipsisLength
+            'Insert the ellipsis at the end
+            If EllipsisLength <> 0 Then Call UnsafeCopyString(Ellipsis, i)
+            Exit Function
+        End If
+        'Keep searching...
+        Let i = i - 1
+    Loop
+    
+    'Force truncation:
+    '----------------------------------------------------------------------------------
+    'Truncate our string at the given point, including the ellipsis _
+     (this also clears the CRC)
+    Let Me.Length = MaxLength + EllipsisLength
+    'Insert the ellipsis at the end
+    If EllipsisLength <> 0 Then Call UnsafeCopyString(Ellipsis, MaxLength)
+End Function
 
 'UCase : Convert our string to UPPERCASE
 '======================================================================================

@@ -348,7 +348,7 @@ Private Declare Function api_StrStrI Lib "shlwapi" Alias "StrStrIW" ( _
     ByVal NeedlePointer As Long _
 ) As Long
 
-'/// DATA /////////////////////////////////////////////////////////////////////////////
+'/// CLASS ////////////////////////////////////////////////////////////////////////////
 
 'We'll cache the Windows version here as it's very slow to do this every time _
  we call methods that use alternative APIs for Vista+
@@ -1926,10 +1926,9 @@ Public Function Truncate( _
             CharTypePointer:=VarPtr(CharProps(0)) _
     )
     
-    'Now walk backwards from the truncation point _
-     (`MaxLength` is 1-based, but indexes will be 0-based)
+    'Now walk backwards from the truncation point
     Dim i As Long
-    Let i = (MaxLength - 1)
+    Let i = (PropsLength - 1)
     Do While i >= 0
         'If the character is whitespace, or not a defined Unicode point, then ...
         If ((CharProps(i) And C1_WHITESPACE) <> 0) _
@@ -1937,9 +1936,10 @@ Public Function Truncate( _
         Then
             'Whitespace has been found, so truncate here _
              (this also clears the CRC)
-            Let Me.Length = i + EllipsisLength
+            Let Me.Length = PropsIndex + i + EllipsisLength
             'Insert the ellipsis at the end
-            If EllipsisLength <> 0 Then Call UnsafeCopyString(Ellipsis, i)
+            If EllipsisLength <> 0 _
+                Then Call UnsafeCopyString(Ellipsis, PropsIndex + i)
             Exit Function
         End If
         'Keep searching...

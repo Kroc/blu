@@ -196,8 +196,8 @@ Private Declare Function api_LCMapString Lib "kernel32" Alias "LCMapStringW" ( _
     ByVal MapFlags As LCMAP, _
     ByVal SourceStringPointer As Long, _
     ByVal SourceStringLength As Long, _
-    ByVal DestinationStringPointer As Long, _
-    ByVal DestinationStringLength As Long _
+    ByVal ResultStringPointer As Long, _
+    ByVal ResultStringLength As Long _
 ) As Long
 
 'Unicode & Locale-aware case conversion (Windows Vista+) _
@@ -207,9 +207,9 @@ Private Declare Function api_LCMapStringEx Lib "kernel32" Alias "LCMapStringEx" 
     ByVal MapFlags As LCMAP, _
     ByVal SourceStringPointer As Long, _
     ByVal SourceStringLength As Long, _
-    ByVal DestinationStringPointer As Long, _
-    ByVal DestinationStringLength As Long, _
-    ByVal VersionInformationPointer As Long, _
+    ByVal ResultStringPointer As Long, _
+    ByVal ResultStringLength As Long, _
+    ByVal VersionInfoPointer As Long, _
     ByVal ReservedPointer As Long, _
     ByVal SortHandle As Long _
 ) As Long
@@ -261,7 +261,7 @@ Private Declare Function api_CompareStringEx Lib "kernel32" Alias "CompareString
     ByVal String1Length As Long, _
     ByVal String2Pointer As Long, _
     ByVal String2Length As Long, _
-    ByVal VersionInformationPointer As Long, _
+    ByVal VersionInfoPointer As Long, _
     ByVal ReservedPointer As Long, _
     ByVal Param As Long _
 ) As CSTR_
@@ -763,8 +763,10 @@ Public Property Get CharProperties( _
     If Not ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Property
     'Use the API to fill the return value with the character properties
     Call api_GetStringTypeW( _
-        CT_CTYPE1, UnsafePointer(Index), 1, _
-        VarPtr(CharProperties) _
+                   InfoType:=CT_CTYPE1, _
+        SourceStringPointer:=UnsafePointer(Index), _
+         SourceStringLength:=1, _
+            CharTypePointer:=VarPtr(CharProperties) _
     )
 End Property
 
@@ -853,7 +855,10 @@ Public Function Clear() As bluString
         'This does not change the size of the buffer, should it have increased. _
          If you intend to reuse a large string for a small string, create a new _
          bluString instance instead or call the `Destroy` method
-        Call api_RtlZeroMemory(UnsafePointer, My_Buffer)
+        Call api_RtlZeroMemory( _
+            DestinationPointer:=UnsafePointer, _
+                        Length:=My_Buffer _
+        )
         'Mark the string as being null-length
         Let My_Length = 0: Let My_LengthB = 0
         'Changes to our string will invalidate the CRC
@@ -886,7 +891,9 @@ Public Function Clone( _
     Let Clone.Length = Length
     'Copy the text across (if there is any)
     If My_Length > 0 Then Call api_RtlMoveMemory( _
-        Clone.Pointer(Index), UnsafePointer, Length * 2 _
+        DestinationPointer:=Clone.Pointer(Index), _
+             SourcePointer:=UnsafePointer, _
+                    Length:=Length * 2 _
     )
 End Function
 
@@ -1001,28 +1008,32 @@ Public Function Equals( _
             'NOTE: The use of null on the first parameter causes Windows to use the _
              user's current locale, so we don't need to manually fetch the locale name
             Let Equals = (api_CompareStringEx( _
-                0&, Flags, _
-                StrPtr(Text), -1, _
-                UnsafePointer, -1, _
-                0&, 0&, 0& _
+                 LocaleNamePointer:=0&, _
+                      CompareFlags:=Flags, _
+                    String1Pointer:=StrPtr(Text), String1Length:=-1, _
+                    String2Pointer:=UnsafePointer, String2Length:=-1, _
+                VersionInfoPointer:=0&, _
+                   ReservedPointer:=0&, _
+                             Param:=0& _
             ) = CSTR_EQUAL)
         Else
             'This is the simpler case-comparison supported by XP
             If My_CaseSensitive = 0 Then Let Flags = NORM_IGNORECASE
             'Fall back to the XP-compatible API
             Let Equals = (api_CompareString( _
-                api_GetThreadLocale(), Flags, _
-                StrPtr(Text), -1, _
-                UnsafePointer, -1 _
+                      LocaleID:=api_GetThreadLocale(), _
+                  CompareFlags:=Flags, _
+                String1Pointer:=StrPtr(Text), String1Length:=-1, _
+                String2Pointer:=UnsafePointer, String2Length:=-1 _
             ) = CSTR_EQUAL)
         End If
     
     'Case-sensitive (binary) comparison
     Else
         Let Equals = (api_CompareStringOrdinal( _
-            StrPtr(Text), -1, _
-            UnsafePointer, -1, _
-            API_FALSE _
+            String1Pointer:=StrPtr(Text), String1Length:=-1, _
+            String2Pointer:=UnsafePointer, String2Length:=-1, _
+                IgnoreCase:=API_FALSE _
         ) = CSTR_EQUAL)
     End If
 End Function
@@ -1091,7 +1102,10 @@ Continue:
     
     'Search for the format marker
     Dim ResultPointer As Long
-    Let ResultPointer = api_StrStr(StartPointer, MarkerPointer)
+    Let ResultPointer = api_StrStr( _
+        HaystackPointer:=StartPointer, _
+          NeedlePointer:=MarkerPointer _
+    )
     
     'If the returned pointer is null, the marker was not found
     If ResultPointer = 0 Then GoTo Finish
@@ -1106,8 +1120,9 @@ Continue:
     If Difference = 0 Then
         'Replace the marker
         Call api_RtlMoveMemory( _
-            ResultPointer, _
-            Strings.Pointer(Param), Strings.LengthBytes(Param) _
+            DestinationPointer:=ResultPointer, _
+                 SourcePointer:=Strings.Pointer(Param), _
+                        Length:=Strings.LengthBytes(Param) _
         )
     Else
         'Calculate the remainder portion of our string that will be moved
@@ -1128,9 +1143,9 @@ Continue:
         
         'Shift up or down the remainder portion of our string
         Call api_RtlMoveMemory( _
-            ResultPointer + Strings.LengthBytes(Param), _
-            ResultPointer + MarkerLengthB, _
-            Remainder _
+            DestinationPointer:=ResultPointer + Strings.LengthBytes(Param), _
+                 SourcePointer:=ResultPointer + MarkerLengthB, _
+                        Length:=Remainder _
         )
         'If the replacement string is shorter than the search string, _
          our string will get shorter overall
@@ -1145,7 +1160,9 @@ Continue:
         
         'Copy the replacement string in
         Call api_RtlMoveMemory( _
-            ResultPointer, Strings.Pointer(Param), Strings.LengthBytes(Param) _
+            DestinationPointer:=ResultPointer, _
+                 SourcePointer:=Strings.Pointer(Param), _
+                        Length:=Strings.LengthBytes(Param) _
         )
     End If
     
@@ -1175,8 +1192,11 @@ Public Function GetArray( _
     'Size the return array to fit our string content (not the buffer)
     ReDim ReturnArray(0 To My_Length - 1) As Integer
     'Copy our string into the return array
-    Call api_RtlMoveMemory(VarPtr(ReturnArray(0)), VarPtr(Data(0)), My_LengthB - 2)
-    
+    Call api_RtlMoveMemory( _
+        DestinationPointer:=VarPtr(ReturnArray(0)), _
+             SourcePointer:=VarPtr(Data(0)), _
+                    Length:=My_LengthB - 2 _
+    )
     Let GetArray = ReturnArray
 End Function
 
@@ -1241,7 +1261,9 @@ Public Function Join( _
     Let Me.Length = My_Length + bluStringObj.Length
     'Copy the new string in
     Call api_RtlMoveMemory( _
-        UnsafePointer(Start), bluStringObj.Pointer, bluStringObj.Length * 2 _
+        DestinationPointer:=UnsafePointer(Start), _
+             SourcePointer:=bluStringObj.Pointer, _
+                    Length:=bluStringObj.LengthBytes _
     )
 End Function
 
@@ -1260,17 +1282,23 @@ Public Function LCase() As bluString
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
         Call api_LCMapStringEx( _
-            0&, LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
-            UnsafePointer, My_LengthB, _
-            UnsafePointer, My_LengthB, _
-            0&, 0&, 0& _
+             LocaleNamePointer:=0&, _
+                      MapFlags:=LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
+           SourceStringPointer:=UnsafePointer, _
+            SourceStringLength:=My_LengthB, _
+           ResultStringPointer:=UnsafePointer, _
+            ResultStringLength:=My_LengthB, _
+            VersionInfoPointer:=0&, ReservedPointer:=0&, SortHandle:=0& _
         )
     Else
         'Use the Windows XP compatible API
         Call api_LCMapString( _
-            api_GetThreadLocale(), LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
-            UnsafePointer, My_LengthB, _
-            UnsafePointer, My_LengthB _
+                    LocaleID:=api_GetThreadLocale(), _
+                    MapFlags:=LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
+         SourceStringPointer:=UnsafePointer, _
+          SourceStringLength:=My_LengthB, _
+         ResultStringPointer:=UnsafePointer, _
+          ResultStringLength:=My_LengthB _
         )
     End If
     
@@ -1438,7 +1466,11 @@ Public Function Overwrite( _
     If Not ValidateRange(Index, Length) Then Err.Raise (9): Exit Function
     
     'Now just copy the new text over the top of our string
-    Call api_RtlMoveMemory(UnsafePointer(Index), StrPtr(Text), Length * 2)
+    Call api_RtlMoveMemory( _
+        DestinationPointer:=UnsafePointer(Index), _
+             SourcePointer:=StrPtr(Text), _
+                    Length:=Length * 2 _
+    )
 End Function
 
 'Pointer : Allow access to the "string" pointer for external copying
@@ -1636,7 +1668,11 @@ Continue:
      we don't need to move parts of our string about
     If Difference = 0 Then
         'Replace the found string
-        Call api_RtlMoveMemory(ResultPointer, StrPtr_ReplaceWith, LenB_ReplaceWith)
+        Call api_RtlMoveMemory( _
+            DestinationPointer:=ResultPointer, _
+                 SourcePointer:=StrPtr_ReplaceWith, _
+                        Length:=LenB_ReplaceWith _
+        )
     Else
         'Calculate the remainder portion of our string that will be moved
         Dim Remainder As Long
@@ -1655,9 +1691,9 @@ Continue:
         
         'Shift up or down the remainder portion of our string
         Call api_RtlMoveMemory( _
-            ResultPointer + LenB_ReplaceWith, _
-            ResultPointer + LenB_SearchFor, _
-            Remainder _
+            DestinationPointer:=ResultPointer + LenB_ReplaceWith, _
+                 SourcePointer:=ResultPointer + LenB_SearchFor, _
+                        Length:=Remainder _
         )
         'If the replacement string is shorter than the search string, _
          our string will get shorter overall
@@ -1672,7 +1708,9 @@ Continue:
         
         'Copy the replacement string in
         Call api_RtlMoveMemory( _
-            ResultPointer, StrPtr_ReplaceWith, LenB_ReplaceWith _
+            DestinationPointer:=ResultPointer, _
+                 SourcePointer:=StrPtr_ReplaceWith, _
+                        Length:=LenB_ReplaceWith _
         )
     End If
     
@@ -1731,7 +1769,11 @@ Attribute Text.VB_MemberFlags = "200"
         'Pad the return String to the right size
         Let Text = Space$(My_Length)
         'Copy our String into the return field
-        Call api_RtlMoveMemory(StrPtr(Text), UnsafePointer, My_LengthB)
+        Call api_RtlMoveMemory( _
+            DestinationPointer:=StrPtr(Text), _
+                 SourcePointer:=UnsafePointer, _
+                        Length:=My_LengthB _
+        )
     End If
 End Property
 Public Property Let Text( _
@@ -1746,7 +1788,11 @@ Public Property Let Text( _
          The buffer will be allocated appropriately
         Let Me.Length = Len(NewString)
         'Copy the VB String data over
-        Call api_RtlMoveMemory(UnsafePointer, StrPtr(NewString), LenB(NewString))
+        Call api_RtlMoveMemory( _
+            DestinationPointer:=UnsafePointer, _
+                 SourcePointer:=StrPtr(NewString), _
+                        Length:=LenB(NewString) _
+        )
     End If
     
     'Changes to our string will invalidate the CRC
@@ -1970,17 +2016,23 @@ Public Function UCase() As bluString
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
         Call api_LCMapStringEx( _
-            0&, LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
-            UnsafePointer, My_LengthB, _
-            UnsafePointer, My_LengthB, _
-            0&, 0&, 0& _
+             LocaleNamePointer:=0&, _
+                      MapFlags:=LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
+           SourceStringPointer:=UnsafePointer, _
+            SourceStringLength:=My_LengthB, _
+           ResultStringPointer:=UnsafePointer, _
+            ResultStringLength:=My_LengthB, _
+            VersionInfoPointer:=0&, ReservedPointer:=0&, SortHandle:=0& _
         )
     Else
         'Use the Windows XP compatible API
         Call api_LCMapString( _
-            api_GetThreadLocale(), LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
-            UnsafePointer, My_LengthB, _
-            UnsafePointer, My_LengthB _
+                    LocaleID:=api_GetThreadLocale(), _
+                    MapFlags:=LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
+         SourceStringPointer:=UnsafePointer, _
+          SourceStringLength:=My_LengthB, _
+         ResultStringPointer:=UnsafePointer, _
+          ResultStringLength:=My_LengthB _
         )
     End If
     

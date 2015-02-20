@@ -20,8 +20,10 @@ Option Explicit
 'CLASS :: bluLog
 
 'Dependencies       bluString.cls [bluArrayStrings.cls, <bluArray.cls>]
-'Last Updated       19-JAN-15
-'Last Update        Initial implementation
+'Last Updated       20-FEB-15
+'Last Update        *   Use a buffer for array reservation
+'                   *   'Add' method renamed 'LogFormat', a separate 'Log' method
+'                       logs without formatting for extra speed
 
 '--------------------------------------------------------------------------------------
 
@@ -33,16 +35,20 @@ Option Explicit
 
 Private My_Data() As String             'Our array of VB Strings
 Private My_Count As Long                'Number of Strings in the array (1-based)
+Private My_Buffer As Long
 
 'Used for doing the String formatting before adding a line
-Private LogFormat As bluString
+Private StrFormat As bluString
 
 '/// EVENTS ///////////////////////////////////////////////////////////////////////////
 
 'CLASS Initialize
 '======================================================================================
 Private Sub Class_Initialize()
-    Set LogFormat = New bluString
+    Set StrFormat = New bluString
+    
+    Let My_Buffer = 1024
+    ReDim Preserve My_Data(1 To My_Buffer) As String
 End Sub
 
 'CLASS Terminate
@@ -50,7 +56,7 @@ End Sub
 Private Sub Class_Terminate()
     'This will unload each of the Strings in our array
     Erase My_Data
-    Set LogFormat = Nothing
+    Set StrFormat = Nothing
 End Sub
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
@@ -58,15 +64,22 @@ End Sub
 'Add : Add a line to the log
 '======================================================================================
 'Text           | A VB String to add to our array
+'[FormatValues] | A list of values to replace string markers "{$}" in the text
 '======================================================================================
-Public Sub Add( _
+Public Sub LogFormat( _
          ByRef Text As String, _
     ParamArray FormatValues() As Variant _
 )
     'The next index will be filled
     Let My_Count = My_Count + 1
-    'Increase the array bounds
-    ReDim Preserve My_Data(1 To My_Count) As String
+    'If this goes over the number of reserved string indexes, _
+     increase the size of the array
+    If My_Count > My_Buffer Then
+        'Increase the buffer exponentially
+        Let My_Buffer = My_Buffer * 2
+        'Increase the array bounds
+        ReDim Preserve My_Data(1 To My_Buffer) As String
+    End If
     
     'Are there any values to format?
     If UBound(FormatValues) < 0 Then
@@ -74,9 +87,31 @@ Public Sub Add( _
         Let My_Data(My_Count) = Text
     Else
         'Format the given log message before sending it up
-        Let LogFormat.Text = Text
-        Let My_Data(My_Count) = LogFormat.Format(FormatValues).Text
+        Let StrFormat.Text = Text
+        Let My_Data(My_Count) = StrFormat.Format(FormatValues).Text
     End If
+End Sub
+
+'Log : Add a line to the log
+'======================================================================================
+'Text           | A VB String to add to our array
+'======================================================================================
+Public Sub Log( _
+    ByRef Text As String _
+)
+    'The next index will be filled
+    Let My_Count = My_Count + 1
+    'If this goes over the number of reserved string indexes, _
+     increase the size of the array
+    If My_Count > My_Buffer Then
+        'Increase the buffer exponentially
+        Let My_Buffer = My_Buffer * 2
+        'Increase the array bounds
+        ReDim Preserve My_Data(1 To My_Buffer) As String
+    End If
+    
+    'Add the given text to the log
+    Let My_Data(My_Count) = Text
 End Sub
 
 'Clear : Empty the array

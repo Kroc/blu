@@ -19,10 +19,9 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluString
 
-'Dependencies       bluArrayStrings.cls, <bluArray.cls>
-'Last Updated       16-FEB-15
-'Last Update        * Added `TrimRight` method (and `Trim` to complete the set)
-'                   * Added `Truncate` method
+'Dependencies       None (self-contained)
+'Last Updated       24-FEB-15
+'Last Update        *   Removed bluArrayStrings/bluArray dependency
 
 '--------------------------------------------------------------------------------------
 
@@ -332,7 +331,7 @@ Public Enum C1
     C1_VISIBLE = C1_SPACE Or C1_PUNCT Or C1_BLANK Or C1_ALPHANUM
 End Enum
 
-'String Searching: _
+'String Searching & Replacing: _
  --------------------------------------------------------------------------------------
 'Find the first occurance of a string in another [case-sensitive] _
  <msdn.microsoft.com/en-us/library/windows/desktop/bb773436%28v=vs.85%29.aspx>
@@ -347,6 +346,15 @@ Private Declare Function api_StrStrI Lib "shlwapi" Alias "StrStrIW" ( _
     ByVal HaystackPointer As Long, _
     ByVal NeedlePointer As Long _
 ) As Long
+
+'This type is used during the `Format` method to convert Variants into Strings. _
+ For Variants that are already Strings we just use the pointer, but for types that _
+ need converting, we can store the String conversion here to get at a safe pointer
+Private Type bluString_FormatData
+    Text As String                      'Optional; use the pointer of existing strings
+    Pointer As Long                     '`StrPtr` of the String, not necessarily above
+    ByteCount As Long
+End Type
 
 '/// CLASS ////////////////////////////////////////////////////////////////////////////
 
@@ -468,26 +476,28 @@ End Function
 
 'Buffer : Number of characters to reserve in memory for the string
 '======================================================================================
-Public Property Get Buffer() As BUFFER_SIZE: Let Buffer = My_Buffer: End Property
+Public Property Get Buffer() As BUFFER_SIZE
+    Let Buffer = My_Buffer
+End Property
 Public Property Let Buffer( _
-    ByRef Length As BUFFER_SIZE _
+    ByRef BufferSize As BUFFER_SIZE _
 )
     'No change in buffer?
-    If Length = My_Buffer Then Exit Property
+    If BufferSize = My_Buffer Then Exit Property
     
     'The buffer cannot be set to zero or a negative number. _
      We won't bother throwing an error as it won't affect behaviour
-    If Length <= 0 Then
+    If BufferSize <= 0 Then
         Debug.Print "[bluString] WARNING: Cannot set Buffer to 0 or negative number"
         Exit Property
     'Also you cannot go over the maximum buffer size
-    ElseIf Length > BUFFER_MAX Then
+    ElseIf BufferSize > BUFFER_MAX Then
         'Raise VB's "Overflow" error
         Err.Raise (6): Exit Property
     End If
     
     'Store the new desired buffer length (1-based)
-    Let My_Buffer = Length
+    Let My_Buffer = BufferSize
     'If the buffer is cut shorter than the current content, we need to adjust it too
     If My_Buffer < My_Length Then
         Let My_Length = My_Buffer
@@ -1038,6 +1048,285 @@ Public Function Equals( _
     End If
 End Function
 
+'This incomplete function is far too slow compared to the original `ReadFile`
+'I may consider revisiting it if I think of some way to speed it up 10-fold
+'
+''FileLoad : Import our string from a file
+''======================================================================================
+''FilePath       | Path to the file to read
+''---------------+----------------------------------------------------------------------
+''Returns        | An error number
+''======================================================================================
+'Public Function FileLoad( _
+'    ByRef FilePath As String _
+') As Long
+'    'NOTE: For consistency, using `ReadFile` will *always* clear the current string, _
+'           even if the file can't be read or some other error occurs. The buffer size _
+'           is also thrown away as you are not likely to know the size of the file, _
+'           and the file-encoding will mean that the number of characters may not _
+'           match the number of bytes. The CRC is also reset by this
+'    Call Me.Destroy
+'
+'    Dim FileNumber As Integer
+'    Let FileNumber = FreeFile()
+'
+'    'Pre-flight checks:
+'    '----------------------------------------------------------------------------------
+'
+''    On Error GoTo Finish
+'    'TODO: File not found, file too large and other such errors
+'    'TODO: UTF-8 file names (see pdFSO)
+'    Open FilePath For Binary Access Read Lock Write As #FileNumber
+'    Dim FileLength As Long
+'    Let FileLength = LOF(FileNumber) - 1
+'
+''    'Check for a Byte-Order-Mark:
+''    '----------------------------------------------------------------------------------
+''    'Not many files have a Byte-Order-Mark that specifies the file encoding, _
+''     but if it is there it makes life a lot easier
+''    Dim Encoding As blu_FileEncoding
+''
+''    'Read the first four bytes:
+''    'TODO: Check the file is even four bytes long!
+''    Dim BOM(1 To 4) As Byte
+''    Get #FileNumber, , BOM()
+''
+''    ' FF FE         UTF-16, little endian
+''    ' FE FF         UTF-16, big endian
+''    ' EF BB BF      UTF-8
+''    ' FF FE 00 00   UTF-32, little endian
+''    ' 00 00 FE FF   UTF-32, big-endian
+''
+''    'Check for either UTF-16 Little Endian or UTF32 Little Endian
+''    If BOM(1) = &HFF Then
+''        'In both cases the second byte must be $FE
+''        If BOM(2) = &HFE Then
+''            'If UTF-32 there will be two nulls indicating a 4-byte character
+''            If (BOM(3) = 0) And (BOM(4) = 0) _
+''                Then Let Encoding = UTF32_LE _
+''                Else Let Encoding = UTF16_LE
+''        End If
+''    'UTF-16 Big Endian begins with the $FE byte
+''    ElseIf BOM(1) = &HFE Then
+''        'Verify that the second byte is $FF
+''        If BOM(2) = &HFF Then Let Encoding = UTF16_BE
+''    'Look for the UTF-8 three-byte sequence
+''    ElseIf BOM(1) = &HEF Then
+''        'Note that UTF-8 is neither Little or Big Endian
+''        If (BOM(2) = &HBB) And (BOM(3) = &HBF) Then Let Encoding = UTF8
+''    'Nulls first could be a Big Endian UTF-32 file
+''    ElseIf BOM(1) = 0 Then
+''        'Check the next three bytes for the unique pattern
+''        If (BOM(2) = 0) And (BOM(3) = &HFE) And (BOM(4) = &HFF) _
+''            Then Let Encoding = UTF32_BE
+''    End If
+'
+'    'Walk, validate and convert:
+'    '----------------------------------------------------------------------------------
+'    Dim i As Long
+'    'When parsing ASCII/UTF-8, bytes above 127 will be treated as ANSI _
+'     (Windows 1252 code-page) if invalid as a UTF-8 sequence
+'    Dim Windows1252ToUTF16(0 To &HFF) As Integer
+'    'Up to $80, ANSI is the same as ASCII
+'    For i = 0 To &H7F&: Let Windows1252ToUTF16(i) = i: Next i
+'    'These mappings were produced with the help of _
+'     <lingua-systems.com/unicode-converter/unicode-mappings/encode-windows-1252-to-utf-8-unicode.html>
+'    'NOTE: For undefined points, the Unicode Replacement Character is suplimented _
+'     so as not to leave a Null in our string which may break API calls using it
+'    Let Windows1252ToUTF16(&H80&) = &H20AC      ' €   EURO SIGN
+'    Let Windows1252ToUTF16(&H81&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
+'    Let Windows1252ToUTF16(&H82&) = &H201A      ' ‚   SINGLE LOW-9 QUOTATION MARK
+'    Let Windows1252ToUTF16(&H83&) = &H192       ' ƒ   LATIN SMALL LETTER F WITH HOOK
+'    Let Windows1252ToUTF16(&H84&) = &H201E      ' „   DOUBLE LOW-9 QUOTATION MARK
+'    Let Windows1252ToUTF16(&H85&) = &H2026      ' …   HORIZONTAL ELLIPSIS
+'    Let Windows1252ToUTF16(&H86&) = &H2020      ' †   DAGGER
+'    Let Windows1252ToUTF16(&H87&) = &H2021      ' ‡   DOUBLE DAGGER
+'    Let Windows1252ToUTF16(&H88&) = &H2C6       ' ˆ   MODIFIER LETTER CIRCUMFLEX ACCENT
+'    Let Windows1252ToUTF16(&H89&) = &H2030      ' ‰   PER MILLE SIGN
+'    Let Windows1252ToUTF16(&H8A&) = &H160       ' Š   LATIN CAPITAL LETTER S WITH CARON
+'    Let Windows1252ToUTF16(&H8B&) = &H2039      ' ‹   SINGLE LEFT-POINTING ANGLE QUOTATION MARK
+'    Let Windows1252ToUTF16(&H8C&) = &H152       ' Œ   LATIN CAPITAL LIGATURE OE
+'    Let Windows1252ToUTF16(&H8D&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
+'    Let Windows1252ToUTF16(&H8E&) = &H17D       ' Ž   LATIN CAPITAL LETTER Z WITH CARON
+'    Let Windows1252ToUTF16(&H8F&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
+'    Let Windows1252ToUTF16(&H90&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
+'    Let Windows1252ToUTF16(&H91&) = &H2018      ' ‘   LEFT SINGLE QUOTATION MARK
+'    Let Windows1252ToUTF16(&H92&) = &H2019      ' ’   RIGHT SINGLE QUOTATION MARK
+'    Let Windows1252ToUTF16(&H93&) = &H201C      ' “   LEFT DOUBLE QUOTATION MARK
+'    Let Windows1252ToUTF16(&H94&) = &H201D      ' ”   RIGHT DOUBLE QUOTATION MARK
+'    Let Windows1252ToUTF16(&H95&) = &H2022      ' •   BULLET
+'    Let Windows1252ToUTF16(&H96&) = &H2013      ' –   EN DASH
+'    Let Windows1252ToUTF16(&H97&) = &H2014      ' —   EM DASH
+'    Let Windows1252ToUTF16(&H98&) = &H20DC      ' ˜    SMALL TILDE
+'    Let Windows1252ToUTF16(&H99&) = &H2122      ' ™   TRADE MARK SIGN
+'    Let Windows1252ToUTF16(&H9A&) = &H161       ' š   LATIN SMALL LETTER S WITH CARON
+'    Let Windows1252ToUTF16(&H9B&) = &H203A      ' ›   SINGLE RIGHT-POINTING ANGLE QUOTATION MARK
+'    Let Windows1252ToUTF16(&H9C&) = &H153       ' œ   LATIN SMALL LIGATURE OE
+'    Let Windows1252ToUTF16(&H9D&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
+'    Let Windows1252ToUTF16(&H9E&) = &H17E       ' ž   LATIN SMALL LETTER Z WITH CARON
+'    Let Windows1252ToUTF16(&H9F&) = &H178       ' Ÿ   LATIN CAPITAL LETTER Y WITH DIAERESIS
+'    'Only points $80 to $9F differ from standard Unicode points
+'    For i = &HA0& To &HFF&: Let Windows1252ToUTF16(i) = i: Next i
+'
+''    Dim CodePoint(1 To 4) As Byte
+''    Dim CodePoint8 As Byte
+''    Dim CodePoint16 As Integer
+''    Dim CodePoint32 As Long
+''
+''    'For UTF-32 we only need to split the surrogate pairs
+''    '..................................................................................
+''    If Encoding = UTF32_LE Then
+''        Do While VBA.EOF(FileNumber) = True
+''            'Read the full four bytes
+''            Get #FileNumber, , CodePoint32
+''            'If the upper 2 bytes are 0, then the code point is 16-bits only
+''            If (CodePoint32 \ &H10000) = 0 Then
+''                'Add as-is to our string
+''                Call api_RtlMoveMemory( _
+''                    DestinationPointer:=Data(i), _
+''                         SourcePointer:=VarPtr(CodePoint32), _
+''                                Length:=2 _
+''                )
+''                Let i = i + 1
+''
+''            'If a full 32-bit value, then it needs to be converted to a pair of UTF-16 _
+''             characters using the low/high surrogate characters (D8xx & DCxx)
+''            Else
+''
+''                Stop
+''            End If
+''        Loop
+''
+''    End If
+'
+'UTF8:
+'    'It's not possible for a UTF-8 file to have more characters than it has bytes, _
+'     so we can set the number of characters in our string to match (at least) the _
+'     number of bytes in the file. After the file is parsed, the buffer will be cut _
+'     down to the final number of characters
+'    Let Me.Buffer = FileLength
+'
+'    Dim FileBuffer() As Byte
+'    ReDim FileBuffer(0 To FileLength) As Byte
+'    Let FileBuffer = InputB(FileLength + 1, FileNumber)
+'    Dim B As Long
+'
+'    '<vovisoft.com/unicode/unifunctions.htm#ToUTF16>
+'    '<http://rsdn.ru/forum/vb/2316535.1>
+'    Dim Byte1 As Byte, Byte2 As Byte, Byte3 As Byte, Byte4 As Byte
+'
+'    Let i = 0
+'    Do
+'        'Read one byte to begin with
+''        Get #FileNumber, , Byte1
+'        Let Byte1 = FileBuffer(B): Let B = B + 1
+'
+'        If Byte1 = 0 Then
+'            '
+'
+'        'If this is <128 then it's the same in ASCII/ANSI/UTF-8
+'        '..............................................................................
+'        ElseIf Byte1 < 128 Then
+'            'Add it to our string, and continue
+'            Let Data(i) = Byte1
+'            Let i = i + 1
+'
+'        'UTF-8 byte sequences will begin with either "110?????" ($C0-$DF), _
+'         "1110????" ($E0-$EF) or "11110???" ($F0-$F7). Therefore bytes between $80 _
+'         and $9F will be treated as ANSI and converted from the Windows-1252 code-page
+'        '..............................................................................
+'        'This will test that the top three bits are "100?????" ($80-$9F)
+'        ElseIf (Byte1 And &HE0&) = &H80& Then
+'            Let Data(i) = Windows1252ToUTF16(Byte1)
+'            Let i = i + 1
+'
+'        'Is this a 2-byte UTF-8 sequence? _
+'         (check that the top three bits are "110?????")
+'        '..............................................................................
+'        ElseIf (Byte1 And &HE0&) = &HC0& Then
+'            'Fetch another byte to see if this is a UTF-8 sequence
+''            Get #FileNumber, , Byte2
+'            Let Byte2 = FileBuffer(B): Let B = B + 1
+'
+'            'The bytes in a UTF-8 sequence must be in the form "10??????"
+'            If (Byte2 And &HC0&) = &H80& Then
+'                'Decode the two UTF-8 bytes into a Unicode point
+'                Let Data(i) = (Byte1 And &H1F) * &H40& + (Byte2 And &H3F&)
+'                Let i = i + 1
+'            Else
+'                'The second byte is not part of a UTF-8 sequence, _
+'                 the first byte is above 127 so has to be treated as ANSI
+'                Let Data(i) = Windows1252ToUTF16(Byte1)
+'                Let i = i + 1
+'                'The second byte could be either ASCII or ANSI, but our conversion _
+'                 table keeps the ASCII bytes the same anyway
+'                Let Data(i) = Windows1252ToUTF16(Byte2)
+'                Let i = i + 1
+'            End If
+'
+'        'Is this a 3-byte UTF-8 sequence? _
+'         (check that the top four bits are "1110????")
+'        '..............................................................................
+'        ElseIf (Byte1 And &HF0&) = &HE0& Then
+'            'Fetch another byte to see if this is a UTF-8 sequence
+''            Get #FileNumber, , Byte2
+'            Let Byte2 = FileBuffer(B): Let B = B + 1
+'
+'            'The bytes in a UTF-8 sequence must be in the form "10??????"
+'            If (Byte2 And &HC0&) = &H80& Then
+'                'Get the third byte
+''                Get #FileNumber, , Byte3
+'                Let Byte3 = FileBuffer(B): Let B = B + 1
+'
+'                'Check that this too follows the correct form "10??????"
+'                If (Byte2 And &HC0&) = &H80& Then
+'                    'Decode the three UTF-8 bytes into a Unicode point
+'                    Let Data(i) = (Byte1 And &HF&) * &H1000 _
+'                                + (Byte2 And &H3F&) * &H40 _
+'                                + (Byte3 And &H3F&)
+'                    Let My_Length = i + 1
+'                Else
+'                    'Not a valid UTF-8 sequence, treat all three bytes as ASCII/ANSI
+'                    Let Data(i) = Windows1252ToUTF16(Byte1)
+'                    Let i = i + 1
+'                    Let Data(i) = Windows1252ToUTF16(Byte2)
+'                    Let i = i + 1
+'                    Let Data(i) = Windows1252ToUTF16(Byte3)
+'                    Let i = i + 1
+'                End If
+'            Else
+'                'The second byte is not part of a UTF-8 sequence, _
+'                 the first byte is above 127 so has to be treated as ANSI
+'                Let Data(i) = Windows1252ToUTF16(Byte1)
+'                Let i = i + 1
+'                'The second byte could be either ASCII or ANSI, but our conversion _
+'                 table keeps the ASCII bytes the same anyway
+'                Let Data(i) = Windows1252ToUTF16(Byte2)
+'                Let i = i + 1
+'            End If
+'
+'        'Not a plausible UTF-8 sequence byte, treat as ANSI
+'        Else
+'            Let Data(i) = Windows1252ToUTF16(Byte1)
+'            Let i = i + 1
+'        End If
+'
+''    Loop While VBA.EOF(FileNumber) = False
+'    Loop While B <= FileLength
+'    Let Me.Length = i
+'
+'    GoTo Finish
+'
+'Finish:
+'    'Free our file handle (release the write-lock)
+'    Close #FileNumber
+'    'Clean up the small conversion table
+'    Erase Windows1252ToUTF16
+'
+'    'Trim the buffer to the size of the file
+'    Call Me.ReduceBuffer
+'End Function
+
 'Format : Replace markers in the text with the values provided
 '======================================================================================
 'Params...      | An array of values (strings, numbers &c.) to insert
@@ -1058,20 +1347,15 @@ Public Function Format( _
     If Last < First Then Exit Function
     
     'For non-String parameters, we will do the String conversion, but we will need _
-     somewhere to store them so that we can get at their pointers. The bluArrayString _
-     provides an easy means of managing the text, length and pointer for each.
-    'There are APIs for doing String conversion <vbforums.com/showthread.php?736407> _
-     but `CStr` is probably already using this behind the scenes. Also, rolling your _
-     own String conversion is actually super difficult _
-     <serpentine.com/blog/2011/06/29/here-be-dragons>
-    Dim Strings As bluArrayStrings
-    Set Strings = New bluArrayStrings
-    Let Strings.AllowDuplicates = True
+     somewhere to store them so that we can get at their pointers. The FormatData _
+     array provides an easy means of managing the text, length and pointer for each.
+    Dim FormatData() As bluString_FormatData
+    ReDim FormatData(0) As bluString_FormatData
     
     'Walk the params provided, converting them to Strings.
     Dim Param As Long
     For Param = First To Last
-        Call Strings.AddVariant(Params(Param))
+        Call FormatVariant(Params(Param), FormatData)
     Next Param
     
     '----------------------------------------------------------------------------------
@@ -1098,7 +1382,7 @@ Continue:
      to remove parts of our string and vice-versa. Work out the impact the _
      replacement will have on the length of our string
     Dim Difference As Long
-    Let Difference = Strings.Length(Param) - Len(FORMAT_MARKER)
+    Let Difference = FormatData(Param).ByteCount - LenB(FORMAT_MARKER)
     
     'Search for the format marker
     Dim ResultPointer As Long
@@ -1121,8 +1405,8 @@ Continue:
         'Replace the marker
         Call api_RtlMoveMemory( _
             DestinationPointer:=ResultPointer, _
-                 SourcePointer:=Strings.Pointer(Param), _
-                        Length:=Strings.LengthBytes(Param) _
+                 SourcePointer:=FormatData(Param).Pointer, _
+                        Length:=FormatData(Param).ByteCount _
         )
     Else
         'Calculate the remainder portion of our string that will be moved
@@ -1135,7 +1419,7 @@ Continue:
         'WARNING: If the string increases beyond the buffer, _
          it will be reallocated, making `ResultPointer` invalid!
         If Difference > 0 Then
-            Let Format.Length = Format.Length + Difference
+            Let Format.Length = (Format.LengthBytes + Difference) \ 2
             'Get the potentially new string pointer
             Let StartPointer = Format.Pointer()
             Let ResultPointer = StartPointer + IndexB
@@ -1143,7 +1427,7 @@ Continue:
         
         'Shift up or down the remainder portion of our string
         Call api_RtlMoveMemory( _
-            DestinationPointer:=ResultPointer + Strings.LengthBytes(Param), _
+            DestinationPointer:=ResultPointer + FormatData(Param).ByteCount, _
                  SourcePointer:=ResultPointer + MarkerLengthB, _
                         Length:=Remainder _
         )
@@ -1152,7 +1436,7 @@ Continue:
         'WARNING: If the string increases beyond the buffer, _
          it will be reallocated, making `StartPointer` invalid!
         If Difference < 0 Then
-            Let Format.Length = Format.Length + Difference
+            Let Format.Length = (Format.LengthBytes + Difference) \ 2
             'Get the potentially new string pointer
             Let StartPointer = Format.Pointer()
             Let ResultPointer = StartPointer + IndexB
@@ -1161,22 +1445,22 @@ Continue:
         'Copy the replacement string in
         Call api_RtlMoveMemory( _
             DestinationPointer:=ResultPointer, _
-                 SourcePointer:=Strings.Pointer(Param), _
-                        Length:=Strings.LengthBytes(Param) _
+                 SourcePointer:=FormatData(Param).Pointer, _
+                        Length:=FormatData(Param).ByteCount _
         )
     End If
     
     'We don't want an infinite loop, so move our search pointer over the replacement
-    Let StartPointer = ResultPointer + Strings.LengthBytes(Param)
+    Let StartPointer = ResultPointer + FormatData(Param).ByteCount
     'Move onto the next parameter
-    Let Param = Param + 1: If Param > Strings.Count Then GoTo Finish
+    Let Param = Param + 1: If Param > UBound(FormatData) Then GoTo Finish
     'Proceed with the next search
     GoTo Continue
     
     '----------------------------------------------------------------------------------
 Finish:
     'And clean up
-    Set Strings = Nothing
+    Erase FormatData
 End Function
 
 'GetArray : Returns a byte-array copy of our string
@@ -1358,7 +1642,9 @@ End Function
 
 'Length : Length of the actual stored text (1-based), not the buffer
 '======================================================================================
-Public Property Get Length() As Long: Let Length = My_Length: End Property
+Public Property Get Length() As Long
+    Let Length = My_Length
+End Property
 Public Property Let Length( _
     ByRef NewLength As Long _
 )
@@ -1411,7 +1697,9 @@ End Property
 
 'LengthBytes : Length of the content in bytes, cannot be set
 '======================================================================================
-Public Property Get LengthBytes() As Long: Let LengthBytes = My_LengthB: End Property
+Public Property Get LengthBytes() As Long
+    Let LengthBytes = My_LengthB
+End Property
 
 'Mid : Reduce the string to a sub-string portion
 '======================================================================================
@@ -1540,13 +1828,11 @@ Public Function ReadFile( _
      rewrite this whole thing to read the file serially and convert-as-we-go. _
      This is a useful reference for manually reading a file encoding: _
      <stackoverflow.com/questions/15809081/encoding-of-text-files-in-vb-6-0>
-    Open FilePath For Input Access Read Lock Write As #FileNumber
     'TODO: File not found, file too large and other such errors
-    Dim Source As String
-    Let Source = StrConv(InputB(LOF(FileNumber), FileNumber), vbUnicode)
+    Open FilePath For Input Access Read Lock Write As #FileNumber
     
     'Use our already-existing property for copying a VB6 string into ours
-    Let Me.Text = Source
+    Let Me.Text = StrConv(InputB(LOF(FileNumber), FileNumber), vbUnicode)
     
 Finish:
     Close #FileNumber
@@ -2088,6 +2374,92 @@ End Function
 'End Function
 
 '/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
+
+'FormatVariant : Convert Variants to Strings, including recursive array walking
+'======================================================================================
+'AddVar         | Some value of any type, including arrays
+'AddArray       | The array of FormatData you want to put the converted Strings into
+'======================================================================================
+Private Sub FormatVariant( _
+    ByRef AddVar As Variant, _
+    ByRef AddArray() As bluString_FormatData _
+)
+    'We don't want to calculate array bounds on every loop
+    Dim First As Long, Last As Long
+    
+    'Check the type of the parameter (Long, String, Double &c.)
+    Dim AddVarType As VBA.VbVarType
+    Let AddVarType = VarType(AddVar)
+    
+    'We'll prepare the format data (String, Pointer, Length) here _
+     before copying it to the return array
+    Dim DataToAdd As bluString_FormatData
+    
+    Dim i As Long
+    Select Case AddVarType
+        'We can just use the pointer of an existing String
+        Case vbString
+            '..........................................................................
+            Let DataToAdd.Pointer = StrPtr(AddVar)
+            Let DataToAdd.ByteCount = LenB(AddVar)
+            GoSub AddPointer
+            
+        'These types can be converted to a String
+        'There are APIs for doing String conversion <vbforums.com/showthread.php?736407> _
+         but `CStr` is probably already using this behind the scenes. Also, rolling _
+         your own String conversion is actually super difficult _
+         <serpentine.com/blog/2011/06/29/here-be-dragons>
+        Case vbBoolean, vbByte, vbCurrency, vbDate, vbDecimal, _
+             vbDouble, vbEmpty, vbError, vbInteger, vbLong, vbSingle
+            '..........................................................................
+            Let DataToAdd.Text = CStr(AddVar)
+            GoSub AddString
+            
+        Case vbObject
+            '..........................................................................
+            'Use the contents of a bluString
+            If TypeOf AddVar Is bluString Then
+                Let DataToAdd.Pointer = AddVar.Pointer
+                Let DataToAdd.ByteCount = AddVar.LengthBytes
+                GoSub AddPointer
+            Else
+                'Other objects can't be co-erced
+                Err.Raise (13)
+            End If
+            
+        'Note that `vbArray` is combined with the data type inside the array, _
+         including Variant too, i.e. `vbArray + vbVariant`
+        Case Is >= vbArray
+            '..........................................................................
+            'Arrays need to be walked, pushing each value as its own parameter
+            Let First = LBound(AddVar): Let Last = UBound(AddVar)
+            For i = First To Last: Call FormatVariant(AddVar(i), AddArray): Next i
+            
+        Case Else
+            '..........................................................................
+            'All other data types can't be co-erced
+            Err.Raise (13)
+    End Select
+    Exit Sub
+    
+    '----------------------------------------------------------------------------------
+AddPointer:
+    Let DataToAdd.Text = vbNullString
+    GoTo AddData
+    
+AddString:
+    With DataToAdd
+        Let .Pointer = StrPtr(.Text)
+        Let .ByteCount = LenB(.Text)
+    End With
+    
+AddData:
+    Dim Count As Long
+    Let Count = UBound(AddArray) + 1
+    ReDim Preserve AddArray(0 To Count) As bluString_FormatData
+    LSet AddArray(Count) = DataToAdd
+    Return
+End Sub
 
 'UnsafePointer : Gets a pointer to the string, without validation -- internal use
 '======================================================================================

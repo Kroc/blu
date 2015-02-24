@@ -20,8 +20,8 @@ Option Explicit
 'CLASS :: bluProfiler
 
 'Dependencies       None (self-contained)
-'Last Updated       30-NOV-14
-'Last Update        Initial version
+'Last Updated       23-FEB-15
+'Last Update        Changed the Report to a property so you can get it any time
 
 '--------------------------------------------------------------------------------------
 
@@ -136,29 +136,13 @@ Private Sub Class_Terminate()
     
     'Dump a report
     Debug.Print "[bluProfiler] Terminated"
-    Call Me.DebugPrint
+    Debug.Print Me.Report
     
     'Clear the data out
     Erase Events
 End Sub
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
-
-Public Sub DebugPrint()
-    Debug.Print "[bluProfiler] Event Report:                   Iterations Elapsed    Min    Average    Max"
-    Debug.Print "========================================================================================="
-    
-    Dim i As Long
-    For i = 0 To EventCount: With Events(i)
-        If .Count > 0 Then Debug.Print "* " _
-            & Left$(.Title & Space$(46), 46) _
-            & " " & Right$(Space$(7) & Format$(CStr(.Count), "#,0"), 7) _
-            & " " & Right$(Space$(7) & Format$(CStr(.Elapsed), "#,0"), 7) _
-            & " " & Right$(Space$(6) & Format$(CStr(.Min), "#,0"), 6) _
-            & " " & Right$(Space$(10) & Format$(CStr(.Elapsed / .Count), "#,0.00"), 10) _
-            & " " & Right$(Space$(6) & Format$(CStr(.Max), "#,0"), 6)
-    End With: Next i
-End Sub
 
 'EventBegin
 '======================================================================================
@@ -211,6 +195,28 @@ Public Sub RegisterEvent( _
     Debug.Print "[bluProfiler] Registered: '" & EventTitle & "'"
 End Sub
 
+'Report : Provide a report on the current timings
+'======================================================================================
+Public Property Get Report( _
+) As String
+    Let Report = "[bluProfiler] Event Report:                   Iterations Elapsed    Min    Average    Max" & vbNewLine
+    Let Report = Report & "=========================================================================================" & vbNewLine
+    
+    Dim i As Long
+    For i = 0 To EventCount: With Events(i)
+        If .Count > 0 Then Let Report = Report & "* " _
+            & Left$(.Title & Space$(46), 46) _
+            & " " & Right$(Space$(7) & Format$(CStr(.Count), "#,0"), 7) _
+            & " " & Right$(Space$(7) & Format$(CStr(.Elapsed), "#,0"), 7) _
+            & " " & Right$(Space$(6) & Format$(CStr(.Min), "#,0"), 6) _
+            & " " & Right$(Space$(10) & Format$(CStr(.Elapsed / .Count), "#,0.00"), 10) _
+            & " " & Right$(Space$(6) & Format$(CStr(.Max), "#,0"), 6) _
+            & vbNewLine
+    End With: Next i
+End Property
+
 'Resolution : The minimum time (in milliseconds) between time requests
 '======================================================================================
-Public Property Get Resolution() As Long: Let Resolution = My_Resolution: End Property
+Public Property Get Resolution() As Long
+    Let Resolution = My_Resolution
+End Property

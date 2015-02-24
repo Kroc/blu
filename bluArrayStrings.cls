@@ -92,11 +92,15 @@ End Property
 
 '<bluArray>_Clear
 '======================================================================================
-Private Sub bluArray_Clear(): Call Clear: End Sub
+Private Sub bluArray_Clear()
+    Call Clear
+End Sub
 
 '<bluArray>_Count
 '======================================================================================
-Private Property Get bluArray_Count() As Long: Let bluArray_Count = My_Count: End Property
+Private Property Get bluArray_Count() As Long
+    Let bluArray_Count = My_Count
+End Property
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
 
@@ -235,7 +239,9 @@ End Function
 'Count : Number of Strings in our array
 '======================================================================================
 'This is the public interface for working directly with bluArrayStrings
-Public Property Get Count() As Long: Let Count = My_Count: End Property
+Public Property Get Count() As Long
+    Let Count = My_Count
+End Property
 
 'Index : Get the Index number for a string in the array
 '======================================================================================

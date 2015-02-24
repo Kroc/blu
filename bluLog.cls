@@ -19,7 +19,7 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluLog
 
-'Dependencies       bluString.cls [bluArrayStrings.cls, <bluArray.cls>]
+'Dependencies       bluString.cls
 'Last Updated       20-FEB-15
 'Last Update        *   Use a buffer for array reservation
 '                   *   'Add' method renamed 'LogFormat', a separate 'Log' method
@@ -149,7 +149,9 @@ End Function
 
 'Count : Number of Strings in our array
 '======================================================================================
-Public Property Get Count() As Long: Let Count = My_Count: End Property
+Public Property Get Count() As Long
+    Let Count = My_Count
+End Property
 
 'Item : Get access to a String in the array
 '======================================================================================

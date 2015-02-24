@@ -62,7 +62,9 @@ End Sub
 
 'Buffer : The size of the binary buffer (not the data) in bytes
 '======================================================================================
-Public Property Get Buffer() As Long: Let Buffer = My_Buffer: End Property
+Public Property Get Buffer() As Long
+    Let Buffer = My_Buffer
+End Property
 Public Property Let Buffer( _
     ByVal Length As Long _
 )

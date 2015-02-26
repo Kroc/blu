@@ -20,21 +20,25 @@ Option Explicit
 'CLASS :: bluLog
 
 'Dependencies       bluString.cls
-'Last Updated       20-FEB-15
-'Last Update        *   Use a buffer for array reservation
-'                   *   'Add' method renamed 'LogFormat', a separate 'Log' method
-'                       logs without formatting for extra speed
+'Last Updated       24-FEB-15
+'Last Update
 
 '--------------------------------------------------------------------------------------
 
 'A class designed for maximum-speed logging of text, either to memory or disk. _
  An array of Strings is used instead of a single String to avoid ever having to _
- reallocate the text
+ reallocate the text, this is much faster than using a bluString if all you're doing _
+ is appending text
 
 '/// CLASS ////////////////////////////////////////////////////////////////////////////
 
 Private My_Data() As String             'Our array of VB Strings
 Private My_Count As Long                'Number of Strings in the array (1-based)
+
+'The String array is only an array of pointers to Strings, therefore increasing the _
+ array doesn't have to move all the String data too, but for maximum speed we will _
+ use a buffer of log "lines" so that the pointer array doesn't have to be moved in _
+ memory every time we add one line
 Private My_Buffer As Long
 
 'Used for doing the String formatting before adding a line
@@ -47,6 +51,7 @@ Private StrFormat As bluString
 Private Sub Class_Initialize()
     Set StrFormat = New bluString
     
+    'Begin with a 1024 line buffer in the String array
     Let My_Buffer = 1024
     ReDim Preserve My_Data(1 To My_Buffer) As String
 End Sub
@@ -61,7 +66,7 @@ End Sub
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
 
-'Add : Add a line to the log
+'LogFormat : Add a line to the log, with marker replacement
 '======================================================================================
 'Text           | A VB String to add to our array
 '[FormatValues] | A list of values to replace string markers "{$}" in the text
@@ -139,6 +144,7 @@ Public Function Concatenate( _
     
     Let ReturnString.Buffer = Length
     
+    'TODO: We could do this with RtlMoveMemory ourselves and it should be faster
     For i = 1 To My_Count
         Call ReturnString.Append(My_Data(i)).Append(vbCrLf)
     Next i

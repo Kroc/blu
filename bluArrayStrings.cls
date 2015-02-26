@@ -57,7 +57,7 @@ Private Sub Class_Terminate()
 End Sub
 
 '/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
-'blu's Array classes can be generically handled using `bluArray`
+'/// blu's Array classes can be generically handled using `bluArray`
 
 '<bluArray>_AddVariant : Add a Variant to the array, converting to the correct type
 '======================================================================================

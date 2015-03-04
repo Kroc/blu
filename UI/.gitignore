@@ -1,10 +1,7 @@
 *
 !.gitignore
 
-!CORE
-!DEBUG
-!FILESYSTEM
-!UI
+!CONTROLS
 
 !*.txt
 !*.bas

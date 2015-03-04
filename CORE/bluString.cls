@@ -1166,17 +1166,16 @@ Public Function FileLoad( _
     
     'Pre-flight checks:
     '----------------------------------------------------------------------------------
-    
+    'TODO: Validate the FilePath?
     
     
     'Read the file:
     '----------------------------------------------------------------------------------
-    'Note that we cannot open a file larger than 2 GB as we will be walking the buffer _
-     using a signed Long which will go negative above 2 Billion. We won't be able to _
-     convert this into a String longer than 1 Billion characters due to the two-bytes _
-     per character format of UTF-16
-    
+    'Use the Windows API to access the file, _
+     this avoids VB's slow and unwieldy error handling
     Dim FileHandle As Long
+    'NOTE: For reasons not yet understood, this call is actually *slower* reading from _
+           USB drives than using VB's `InputB`... go figure
     Let FileHandle = api_CreateFile( _
                     FileNamePointer:=StrPtr(FilePath), _
                       DesiredAccess:=GENERIC_READ, _
@@ -1202,8 +1201,11 @@ Public Function FileLoad( _
     'The Currency type has two decimal places, so push this up to whole bytes
     Let FileSize = FileSize * 10000
     
-    'Is the file too big? We can't buffer more than 2 GB in RAM. Even though the text _
-     limit is 1 billion characters, the file-encoding may use multiple bytes per char
+    'Is the file too big?
+    'Note that we cannot open a file larger than 2 GB as we will be walking the buffer _
+     using a signed Long which will go negative above 2 Billion. We won't be able to _
+     convert this into a String longer than 1 Billion characters due to the two-bytes _
+     per character format of UTF-16
     If FileSize > FILE_MAX Then
         Call api_CloseHandle(FileHandle)
         Stop
@@ -1225,6 +1227,8 @@ Public Function FileLoad( _
     )
     
     Call api_CloseHandle(FileHandle)
+    
+    Dim B As Long
     
 '    'Check for a Byte-Order-Mark:
 '    '----------------------------------------------------------------------------------
@@ -1346,6 +1350,7 @@ Public Function FileLoad( _
 '    End If
 
 UTF8:
+    '----------------------------------------------------------------------------------
     'It's not possible for a UTF-8 file to have more characters than it has bytes, _
      so we can set the number of characters in our string to match (at least) the _
      number of bytes in the file. After the file is parsed, the buffer will be cut _
@@ -1355,7 +1360,6 @@ UTF8:
     '<vovisoft.com/unicode/unifunctions.htm#ToUTF16>
     '<http://rsdn.ru/forum/vb/2316535.1>
     Dim Byte1 As Byte, Byte2 As Byte, Byte3 As Byte
-    Dim B As Long
     
     Let i = 0
     Do
@@ -1425,12 +1429,9 @@ UTF8:
                     Let My_Length = i + 1
                 Else
                     'Not a valid UTF-8 sequence, treat all three bytes as ASCII/ANSI
-                    Let Data(i) = Windows1252ToUTF16(Byte1)
-                    Let i = i + 1
-                    Let Data(i) = Windows1252ToUTF16(Byte2)
-                    Let i = i + 1
-                    Let Data(i) = Windows1252ToUTF16(Byte3)
-                    Let i = i + 1
+                    Let Data(i) = Windows1252ToUTF16(Byte1): Let i = i + 1
+                    Let Data(i) = Windows1252ToUTF16(Byte2): Let i = i + 1
+                    Let Data(i) = Windows1252ToUTF16(Byte3): Let i = i + 1
                 End If
             Else
                 'The second byte is not part of a UTF-8 sequence, _
@@ -1450,11 +1451,13 @@ UTF8:
         End If
     Loop While B <= FileLength
     
+    'Clean up the small conversion table
+    Erase Windows1252ToUTF16
+    
     Call SetLength(i)
 
 Finish:
-    'Clean up the small conversion table
-    Erase Windows1252ToUTF16
+    '----------------------------------------------------------------------------------
     'Trim the buffer to the size of the file
     Call Me.ReduceBuffer
 End Function
@@ -2395,13 +2398,11 @@ Public Function Truncate( _
             'Changes to our string will invalidate the CRC
             Let CRCValid = 0
             'Insert the ellipsis at the end
-            If EllipsisLength <> 0 Then
-                Call api_RtlMoveMemory( _
-                    DestinationPointer:=VarPtr(Data(PropsIndex + i)), _
-                         SourcePointer:=StrPtr(Ellipsis), _
-                                Length:=LenB(Ellipsis) _
-                )
-            End If
+            If EllipsisLength <> 0 Then Call api_RtlMoveMemory( _
+                DestinationPointer:=VarPtr(Data(PropsIndex + i)), _
+                     SourcePointer:=StrPtr(Ellipsis), _
+                            Length:=LenB(Ellipsis) _
+            )
             Exit Function
         End If
         'Keep searching...
@@ -2416,13 +2417,11 @@ Public Function Truncate( _
     Let CRCValid = 0
     
     'Insert the ellipsis at the end
-    If EllipsisLength <> 0 Then
-        Call api_RtlMoveMemory( _
-            DestinationPointer:=VarPtr(Data(MaxLength)), _
-                 SourcePointer:=StrPtr(Ellipsis), _
-                        Length:=LenB(Ellipsis) _
-        )
-    End If
+    If EllipsisLength <> 0 Then Call api_RtlMoveMemory( _
+        DestinationPointer:=VarPtr(Data(MaxLength)), _
+             SourcePointer:=StrPtr(Ellipsis), _
+                    Length:=LenB(Ellipsis) _
+    )
 End Function
 
 'UCase : Convert our string to UPPERCASE
@@ -2606,7 +2605,7 @@ AddData:
     Return
 End Sub
 
-'SetLength
+'SetLength : An internal method to set the string length without repeated validation
 '======================================================================================
 'NewLength      | What to set our string length to
 '======================================================================================

@@ -19,21 +19,15 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluArrayStrings
 
-'Dependencies       <bluArray.cls>, bluString.cls
-'Last Updated       19-JAN-15
-'Last Update        Added a rough `Concatenate` method
+'Dependencies       bluString.cls
+'Last Updated       26-MAR-15
+'Last Update        Removed bluArray.cls Interface, there's no need for it right now, _
+                    and Strings are a different thing to numerical values
 
 '--------------------------------------------------------------------------------------
 
 'This is a class to make handling an array of Strings much easier to manage without _
  polluting your own code with redimming and bounds checking
-
-'--------------------------------------------------------------------------------------
-
-'We implement the bluArray interface, which provides a means of accessing _
- bluArrayStrings, bluArrayLongs etc without having to know which type your _
- instance is (e.g. when in a Variant / Object)
-Implements bluArray
 
 '/// CLASS ////////////////////////////////////////////////////////////////////////////
 
@@ -55,52 +49,6 @@ Private Sub Class_Terminate()
     'This will unload each of the Strings in our array
     Erase My_Data
 End Sub
-
-'/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
-'/// blu's Array classes can be generically handled using `bluArray`
-
-'<bluArray>_AddVariant : Add a Variant to the array, converting to the correct type
-'======================================================================================
-Private Sub bluArray_AddVariant( _
-    ByRef AddVar As Variant _
-)   'Simply pass this on to the internal implementation
-    Call AddVariant(AddVar)
-End Sub
-
-'<bluArray>_AllowDuplicates : Property to allow duplicate values to be added
-'======================================================================================
-Private Property Get bluArray_AllowDuplicates() As Boolean
-    Let bluArray_AllowDuplicates = My_AllowDuplicates
-End Property
-Private Property Let bluArray_AllowDuplicates( _
-    ByVal Mode As Boolean _
-)
-    Let My_AllowDuplicates = Mode
-End Property
-
-'<bluArray>_AsString
-'======================================================================================
-'Index          | An Index number for the array contents
-'---------------+----------------------------------------------------------------------
-'Returns        | The VB String in the array at the given Index
-'======================================================================================
-Private Property Get bluArray_AsString( _
-    ByVal Index As Long _
-) As String
-    Let bluArray_AsString = Item(Index)
-End Property
-
-'<bluArray>_Clear
-'======================================================================================
-Private Sub bluArray_Clear()
-    Call Clear
-End Sub
-
-'<bluArray>_Count
-'======================================================================================
-Private Property Get bluArray_Count() As Long
-    Let bluArray_Count = My_Count
-End Property
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
 
@@ -131,7 +79,7 @@ End Function
 '======================================================================================
 'AddVar         | Some value of any type, including arrays
 '======================================================================================
-'This is the public interface when handling a 'bluArrayStrings' instance directly
+
 Public Sub AddVariant( _
     ByRef AddVar As Variant _
 )
@@ -156,14 +104,14 @@ Public Sub AddVariant( _
             If TypeOf AddVar Is bluString Then
                 Call Add(AddVar.Text)
                 
-            'Walk another bluArray
-            ElseIf TypeOf AddVar Is bluArray Then
-                'Cast the Variant to a generic bluArray interface
-                Dim ArrObj As bluArray
+            'Walk another bluArrayStrings
+            ElseIf TypeOf AddVar Is bluArrayStrings Then
+                'Cast the Variant to a bluArrayStrings interface
+                Dim ArrObj As bluArrayStrings
                 Set ArrObj = AddVar
-                'Now walk the items in the bluArray, convering to Strings
+                'Now walk the items in the bluArrayStrings, convering to Strings
                 Let First = 1: Let Last = ArrObj.Count
-                For i = First To Last: Call Add(ArrObj.AsString(i)): Next i
+                For i = First To Last: Call Add(ArrObj.Item(i)): Next i
             Else
                 Err.Raise (13)
             End If
@@ -238,7 +186,6 @@ End Function
 
 'Count : Number of Strings in our array
 '======================================================================================
-'This is the public interface for working directly with bluArrayStrings
 Public Property Get Count() As Long
     Let Count = My_Count
 End Property

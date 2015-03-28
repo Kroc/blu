@@ -28,6 +28,42 @@ Private Enum BOOL
     API_FALSE = 0
 End Enum
 
+'File attributes:
+'--------------------------------------------------------------------------------------
+
+'Get the attributes from a file (also a quick way of testing a file exists) _
+ <msdn.microsoft.com/en-us/library/windows/desktop/aa364944(v=vs.85).aspx>
+Private Declare Function api_GetFileAttributes Lib "kernel32" Alias "GetFileAttributesW" ( _
+    ByVal FileNamePointer As Long _
+) As FILE_ATTRIBUTE
+
+'<msdn.microsoft.com/en-us/library/windows/desktop/gg258117(v=vs.85).aspx>
+Private Enum FILE_ATTRIBUTE
+    INVALID_FILE_ATTRIBUTES = &HFFFFFFFF
+    
+    FILE_ATTRIBUTE_NORMAL = &H80&
+    
+    FILE_ATTRIBUTE_READONLY = &H1&
+    FILE_ATTRIBUTE_HIDDEN = &H2&
+    FILE_ATTRIBUTE_SYSTEM = &H4&
+    FILE_ATTRIBUTE_DIRECTORY = &H10&
+    FILE_ATTRIBUTE_ARCHIVE = &H20&
+    
+    FILE_ATTRIBUTE_COMPRESSED = &H800&
+    FILE_ATTRIBUTE_ENCRYPTED = &H4000&
+    
+    FILE_ATTRIBUTE_TEMPORARY = &H100&
+    FILE_ATTRIBUTE_SPARSE_FILE = &H200&
+    FILE_ATTRIBUTE_REPARSE_POINT = &H400&
+    FILE_ATTRIBUTE_OFFLINE = &H1000&
+    
+    FILE_ATTRIBUTE_NOT_CONTENT_INDEXED = &H2000&
+    FILE_ATTRIBUTE_DEVICE = &H40&       'Reserved
+    FILE_ATTRIBUTE_VIRTUAL = &H10000    'Reserved
+End Enum
+
+Private Const ERROR_SHARING_VIOLATION As Long = 32
+
 'File Loading & Saving:
 '--------------------------------------------------------------------------------------
 
@@ -39,7 +75,7 @@ Private Declare Function api_CreateFile Lib "kernel32" Alias "CreateFileW" ( _
     ByVal ShareMode As FILE_SHARE, _
     ByVal SecurityAttributesPointer As Long, _
     ByVal CreationDisposition As CREATE, _
-    ByVal FlagsAndAttributes As File, _
+    ByVal FlagsAndAttributes As FILE_FLAGS, _
     ByVal TemplateFileHandle As Long _
 ) As Long
 
@@ -65,7 +101,7 @@ Private Enum CREATE
     TRUNCATE_EXISTING = 5               'If file exists, reduce it to zero bytes
 End Enum
 
-Private Enum File
+Private Enum FILE_FLAGS
     'The file does not have other attributes set
     'This attribute is valid only if used alone
     FILE_ATTRIBUTE_NORMAL = &H80&
@@ -112,10 +148,18 @@ Private Declare Function api_CloseHandle Lib "kernel32" Alias "CloseHandle" ( _
 
 'FileExists
 '======================================================================================
+'Returns        | True if the given file exists, false otherwise
+'======================================================================================
 Public Function FileExists( _
     ByRef FilePath As String _
 ) As Boolean
-    'TODO
+    'The Unicode API will return a sharing violation for system files, _
+     which tells us that the file does exist, but that we're not allowed to touch it
+    'This method of testing is based upon this answer: _
+     <vbforums.com/showthread.php?784047&viewfull=1#post4810609>
+    If (api_GetFileAttributes(StrPtr(FilePath)) And vbDirectory) = 0 _
+        Then Let FileExists = True _
+        Else Let FileExists = (Err.LastDllError = ERROR_SHARING_VIOLATION)
 End Function
 
 'ReadFile_AsArray : Read a file into a byte-array
@@ -140,7 +184,8 @@ Public Function ReadFile_AsArray( _
                           ShareMode:=FILE_SHARE_READ, _
           SecurityAttributesPointer:=0&, _
                 CreationDisposition:=OPEN_EXISTING, _
-                 FlagsAndAttributes:=FILE_ATTRIBUTE_NORMAL Or FILE_FLAG_SEQUENTIAL_SCAN, _
+                 FlagsAndAttributes:=FILE_FLAGS.FILE_ATTRIBUTE_NORMAL _
+                                  Or FILE_FLAGS.FILE_FLAG_SEQUENTIAL_SCAN, _
                  TemplateFileHandle:=0& _
     )
     

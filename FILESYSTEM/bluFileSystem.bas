@@ -148,7 +148,9 @@ Private Declare Function api_CloseHandle Lib "kernel32" Alias "CloseHandle" ( _
 
 'FileExists
 '======================================================================================
-'Returns        | True if the given file exists, false otherwise
+'FilePath       | File path to check for
+'---------------¦----------------------------------------------------------------------
+'Returns        | True if the given file exists, False otherwise
 '======================================================================================
 Public Function FileExists( _
     ByRef FilePath As String _
@@ -159,17 +161,17 @@ Public Function FileExists( _
      <vbforums.com/showthread.php?784047&viewfull=1#post4810609>
     If (api_GetFileAttributes(StrPtr(FilePath)) And vbDirectory) = 0 _
         Then Let FileExists = True _
-        Else Let FileExists = (Err.LastDllError = ERROR_SHARING_VIOLATION)
+        Else: Let FileExists = (Err.LastDllError = ERROR_SHARING_VIOLATION)
 End Function
 
-'ReadFile_AsArray : Read a file into a byte-array
+'ReadBinaryFile_AsArray : Read a binary file into a byte-array
 '======================================================================================
 'FilePath       | String containing the path to the file to read
 'ReturnArray()  | Uinitialised byte array to accept the file contents
 '---------------¦----------------------------------------------------------------------
 'Returns        | An error number
 '======================================================================================
-Public Function ReadFile_AsArray( _
+Public Function ReadBinaryFile_AsArray( _
     ByRef FilePath As String, _
     ByRef ReturnArray() As Byte _
 ) As Long
@@ -245,7 +247,9 @@ Public Function ReadTextFile_AsArray( _
      we'll work out the encoding (UTF-18/16, ANSI/ASCII) and convert the file _
      into a standard Windows UTF-16 (UCS-2) string
     Dim FileBuffer() As Byte
-    Let ReadTextFile_AsArray = bluFileSystem.ReadFile_AsArray(FilePath, FileBuffer)
+    Let ReadTextFile_AsArray = ReadBinaryFile_AsArray( _
+        FilePath, FileBuffer _
+    )
     
     If ReadTextFile_AsArray <> 0 Then
         Stop

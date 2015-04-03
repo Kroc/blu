@@ -20,11 +20,11 @@ Option Explicit
 'CLASS :: bluString
 
 'Dependencies       None (self-contained)
-'Last Updated       28-MAR-15
-'Last Update        *   Removed file functions. In order to ever read/write files _
-                        properly, we will need to replicate a lot of Unicode-aware _
-                        file system interaction which is best held in another module
-'                   *   Minor optimisation to getting Windows version
+'Last Updated       3-APR-15
+'Last Update        *   Added `PushCharInt` method. Less validation, faster
+
+'Always get the latest version of this file at <github.com/Kroc/blu>. _
+ Feedback can be sent to <kroc@camendesign.com>
 
 '--------------------------------------------------------------------------------------
 
@@ -617,7 +617,11 @@ Public Function CharInsert( _
     Let CRCValid = 0
     
     'Shift the upper portion of our string up
-    Call UnsafeCopy(Index, Index + 1, My_Length - Index - 1)
+    Call api_RtlMoveMemory( _
+        DestinationPointer:=VarPtr(Data(Index + 1)), _
+             SourcePointer:=VarPtr(Data(Index)), _
+                    Length:=(My_Length - Index - 1) * 2 _
+    )
     
     'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
          we convert them to their signed equivilent to stuff them into two bytes
@@ -848,6 +852,28 @@ Public Function CharPush( _
         Else Let Data(My_Length - 1) = (Char And &HFFFF&)
 End Function
 
+'CharPushInt : Appends a character code to the end of our string with less validation
+'======================================================================================
+'Char           | Unicode character point as signed Integer (-32768 to 32767)
+'---------------+----------------------------------------------------------------------
+'Returns        | This class object (method chaining)
+'======================================================================================
+Public Function CharPushInt( _
+    ByVal Char As Integer _
+) As bluString
+    'Allow method chaining
+    Set CharPushInt = Me
+    
+    'Increase the length of our string by one character _
+     (the buffer will manage any necessary growth)
+    Call SetLength(My_Length + 1)
+    'Changes to our string will invalidate the CRC
+    Let CRCValid = 0
+    
+    'Set the character code of the last character
+    Let Data(My_Length - 1) = Char
+End Function
+
 'CharRemove : Removes a single character from the string and returns its code
 '======================================================================================
 '[Index]        | Position within string (0-based). Can be negative, in which case the
@@ -1067,6 +1093,39 @@ Public Function Equals( _
     End If
 End Function
 
+''SplitLines : Split a string into an array of lines (breaking at new lines)
+''======================================================================================
+''Returns        | An array of strings
+''======================================================================================
+'Public Function SplitLines( _
+') As String()
+'    'A null-string won't split!
+'    If My_Length = 0 Then Exit Function
+'
+'    'This will be the number of lines found (1-based)
+'    Dim Lines As Long
+'    Dim LineBegin As Long
+'
+'    'Walk the string looking for line-breaks
+'    Dim i As Long
+'    For i = 0 To My_Length
+'        'Look for a line-break. Windows uses CR + LF, Unix just LF
+'        If Data(i) = vbLf Then
+'            'Add the line
+'            Let Lines = Lines + 1
+'            ReDim Preserve SplitLines(1 To Lines) As String
+'
+'            Dim LineLength As Long
+'            Let LineLength = i - LineBegin
+'
+'            'TODO: handle zero-length
+'
+'            Let LineBegin = i
+'        End If
+'    Next i
+'
+'End Function
+
 'Format : Replace markers in the text with the values provided
 '======================================================================================
 'Params...      | An array of values (strings, numbers &c.) to insert
@@ -1203,7 +1262,7 @@ Finish:
     Erase FormatData
 End Function
 
-'GetArray : Returns a byte-array copy of our string
+'GetArray : Returns an Integer (Unicode) array copy of our string
 '======================================================================================
 'Returns        | An array of Unicode (UCS-2) Integer points
 '======================================================================================
@@ -1572,7 +1631,9 @@ Public Function Remove( _
     If Not ValidateRange(Index, Length) Then Err.Raise (9): Exit Function
     
     'If you end up removing the whole string, make it a null-string
-    If (Index = 0) And (Length = My_Length - 1) Then Call Me.Destroy: Exit Function
+    If Index = 0 Then
+        If Length = My_Length - 1 Then Call Me.Destroy: Exit Function
+    End If
     
     'Shift the remainder down into the removed area
     Call UnsafeCopy(Index + Length, Index, Length)

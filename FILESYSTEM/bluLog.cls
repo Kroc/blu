@@ -102,7 +102,7 @@ End Sub
 'Text           | A VB String to add to our array
 '======================================================================================
 Public Sub Log( _
-    ByRef Text As String _
+    Optional ByRef Text As String = vbNullString _
 )
     'The next index will be filled
     Let My_Count = My_Count + 1

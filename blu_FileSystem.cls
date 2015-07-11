@@ -1,4 +1,16 @@
-Attribute VB_Name = "bluFileSystem"
+VERSION 1.0 CLASS
+BEGIN
+  MultiUse = -1  'True
+  Persistable = 0  'NotPersistable
+  DataBindingBehavior = 0  'vbNone
+  DataSourceBehavior  = 0  'vbNone
+  MTSTransactionMode  = 0  'NotAnMTSObject
+END
+Attribute VB_Name = "blu_FileSystem"
+Attribute VB_GlobalNameSpace = False
+Attribute VB_Creatable = True
+Attribute VB_PredeclaredId = False
+Attribute VB_Exposed = False
 Option Explicit
 '======================================================================================
 'blu : A Modern Metro-esque graphical toolkit; Copyright (C) Kroc Camen, 2013-15
@@ -7,15 +19,14 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluFileSystem
 
-'Dependencies       None, self-contained
-'Last Updated       27-MAR-15
-'Last Update        Initial version - INCOMPLETE
+'Dependencies       None, self-contained - INCOMPLETE
+'Last Updated       12-JUL-15
+'Last Update        Added a variety of functions
 
 'Provides Unicode-aware file system interaction.
 
-'This is a module instead of a class because it doesn't keep state. File paths are _
- passed for each function so that if the file/folder disappears between calls, the _
- state won't bork
+'File paths are passed for each function so that if the file/folder disappears _
+ between calls, the state won't bork
  
 'With thanks to Tanner Helland for his PhotoDemon pdFSO class which this module is _
  based around, though my own work.
@@ -26,6 +37,83 @@ Option Explicit
 Private Enum BOOL
     API_TRUE = 1
     API_FALSE = 0
+End Enum
+
+'Some of the more modern WIN32 APIs return 0 for success instead of 1, it varies _
+ <msdn.microsoft.com/en-us/library/windows/desktop/aa378137(v=vs.85).aspx>
+Private Enum HRESULT
+    S_OK = 0
+    S_FALSE = 1
+End Enum
+
+'Path handling:
+'--------------------------------------------------------------------------------------
+'The internal length limit on path strings
+Private Const MAX_PATH As Long = 260
+
+'Fix a path, unfolding any relative elements (e.g. "..", ".") _
+ <msdn.microsoft.com/en-us/library/bb773569(v=vs.85).aspx>
+Private Declare Function api_PathCanonicalize Lib "shlwapi" Alias "PathCanonicalizeW" ( _
+    ByVal ResultStringPointer As Long, _
+    ByVal SourceStringPointer As Long _
+) As BOOL
+
+'Combine two paths, fixing relative elements (i.e. "..", ".") between them _
+ <msdn.microsoft.com/en-us/library/bb773571(v=vs.85).aspx>
+Private Declare Function api_PathCombine Lib "shlwapi" Alias "PathCombineW" ( _
+    ByVal ResultStringPointer As Long, _
+    ByVal Path1StringPointer As Long, _
+    ByVal Path2StringPointer As Long _
+) As Long
+
+'<msdn.microsoft.com/en-us/library/bb773660(v=vs.85).aspx>
+Private Declare Function api_PathIsRelative Lib "shlwapi" Alias "PathIsRelativeW" ( _
+    ByVal SourceStringPointer As Long _
+) As BOOL
+
+'<msdn.microsoft.com/en-us/library/bb773746(v=vs.85).aspx>
+Private Declare Sub api_PathRemoveExtension Lib "shlwapi" Alias "PathRemoveExtensionW" ( _
+    ByVal StringPointer As Long _
+)
+
+'<msdn.microsoft.com/en-us/library/bb773748(v=vs.85).aspx>
+Private Declare Function api_PathRemoveFileSpec Lib "shlwapi" Alias "PathRemoveFileSpecW" ( _
+    ByVal StringPointer As Long _
+) As BOOL
+
+'Special Folders:
+'--------------------------------------------------------------------------------------
+
+'Get the location of a special folder, e.g. "My Documents", "System32" &c. _
+ <msdn.microsoft.com/en-us/library/windows/desktop/bb762181(v=vs.85).aspx>
+Private Declare Function api_SHGetFolderPath Lib "shfolder" Alias "SHGetFolderPathW" ( _
+    ByVal hWndOwner As Long, _
+    ByVal Folder As CSIDL, _
+    ByVal Token As Long, _
+    ByVal Flags As SHGFP, _
+    ByVal ResultPointer As Long _
+) As HRESULT
+
+'Full list with descriptions here: _
+ <msdn.microsoft.com/en-us/library/windows/desktop/bb762494(v=vs.85).aspx>
+Public Enum CSIDL
+    CSIDL_COMMON_VIDEO = &H37&      'All Users\My Video
+    CSIDL_APPDATA = &H1A&           'Application data (roaming), intended for app data
+    CSIDL_COMMON_APPDATA = &H23&    'Application data shared between all users
+                                     'that should persist with the user between machines
+    CSIDL_DESKTOP = &H0
+    
+    CSIDL_LOCAL_APPDATA = &H1C&     'Application data specific to the PC (e.g. cache)
+    
+    CSIDL_SYSTEM = &H25&            'Windows System, i.e. "System32"
+    
+    CSIDL_FLAG_CREATE = &H8000&     'OR this with any of the above to create the folder
+                                     'if it doesn't exist (e.g. user deleted My Pictures)
+End Enum
+
+Private Enum SHGFP
+    SHGFP_TYPE_CURRENT = 0          'Get the folder's current path (it may have moved)
+    SHGFP_TYPE_DEFAULT = 1          'Get the default path
 End Enum
 
 'File attributes:
@@ -68,7 +156,7 @@ Private Const ERROR_SHARING_VIOLATION As Long = 32
 '--------------------------------------------------------------------------------------
 
 'Open a file for reading/writing _
- <msdn.microsoft.com/en-us/library/windows/desktop/aa363858%28v=vs.85%29.aspx>
+ <msdn.microsoft.com/en-us/library/windows/desktop/aa363858(v=vs.85).aspx>
 Private Declare Function api_CreateFile Lib "kernel32" Alias "CreateFileW" ( _
     ByVal FileNamePointer As Long, _
     ByVal DesiredAccess As GENERIC, _
@@ -80,7 +168,7 @@ Private Declare Function api_CreateFile Lib "kernel32" Alias "CreateFileW" ( _
 ) As Long
 
 'Simple file access flags _
- <msdn.microsoft.com/en-us/library/windows/desktop/aa446632%28v=vs.85%29.aspx>
+ <msdn.microsoft.com/en-us/library/windows/desktop/aa446632(v=vs.85).aspx>
 Private Enum GENERIC
     GENERIC_ALL = &H10000000
     GENERIC_READ = &H80000000
@@ -144,6 +232,25 @@ Private Declare Function api_CloseHandle Lib "kernel32" Alias "CloseHandle" ( _
     ByVal Handle As Long _
 ) As BOOL
 
+'/// CLASS ////////////////////////////////////////////////////////////////////////////
+
+'A lot of methods here rely upon a Null-terminated string buffer of `MAX_PATH` length; _
+ a bluString makes this easy for us to work with
+Private APIString As bluString
+
+'CLASS Initialize
+'======================================================================================
+Private Sub Class_Initialize()
+    Set APIString = New bluString
+    Let APIString.Buffer = MAX_PATH
+End Sub
+
+'CLASS Terminate
+'======================================================================================
+Private Sub Class_Terminate()
+    Set APIString = Nothing
+End Sub
+
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
 
 'FileExists
@@ -161,17 +268,35 @@ Public Function FileExists( _
      <vbforums.com/showthread.php?784047&viewfull=1#post4810609>
     If (api_GetFileAttributes(StrPtr(FilePath)) And vbDirectory) = 0 _
         Then Let FileExists = True _
-        Else: Let FileExists = (Err.LastDllError = ERROR_SHARING_VIOLATION)
+        Else Let FileExists = (Err.LastDllError = ERROR_SHARING_VIOLATION)
 End Function
 
-'ReadBinaryFile_AsArray : Read a binary file into a byte-array
+'FileFolder : Get the portion of a path that corresponds to the folder a file is in
+'======================================================================================
+'FilePath       | A path containing a file name
+'---------------¦----------------------------------------------------------------------
+'Returns        | A folder path, sans end-slash
+'======================================================================================
+Public Function FileFolder( _
+    ByRef FilePath As String _
+) As String
+    Let APIString.Text = FilePath
+    'Now call the Windows API to trim the filename
+    If api_PathRemoveFileSpec(APIString.Pointer) = API_TRUE Then
+        'If something was removed, then the new length needs to be set
+        Call APIString.TrimToNull
+    End If
+    Let FileFolder = APIString.Text
+End Function
+
+'FileReadBinary_AsArray : Read a binary file into a byte-array
 '======================================================================================
 'FilePath       | String containing the path to the file to read
 'ReturnArray()  | Uinitialised byte array to accept the file contents
 '---------------¦----------------------------------------------------------------------
 'Returns        | An error number
 '======================================================================================
-Public Function ReadBinaryFile_AsArray( _
+Public Function FileReadBinary_AsArray( _
     ByRef FilePath As String, _
     ByRef ReturnArray() As Byte _
 ) As Long
@@ -179,7 +304,7 @@ Public Function ReadBinaryFile_AsArray( _
      this avoids VB's slow and unwieldy error handling
     Dim FileHandle As Long
     'NOTE: For reasons not yet understood, this call is actually *slower* reading from _
-           USB drives than using VB's `InputB`... go figure
+           USB/SSD drives than using VB's `InputB`... go figure
     Let FileHandle = api_CreateFile( _
                     FileNamePointer:=StrPtr(FilePath), _
                       DesiredAccess:=GENERIC_READ, _
@@ -233,25 +358,25 @@ Public Function ReadBinaryFile_AsArray( _
     Call api_CloseHandle(FileHandle)
 End Function
 
-'ReadTextFile_AsArray : Returns an Integer array of UTF-16 Unicode points for a file
+'FileReadText_AsArray : Returns an Integer array of UTF-16 Unicode points for a file
 '======================================================================================
 'FilePath       | Path to the file to read
-'---------------+----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | An error number
 '======================================================================================
-Public Function ReadTextFile_AsArray( _
+Public Function FileReadText_AsArray( _
     ByRef FilePath As String, _
     ByRef ReturnArray() As Integer _
 ) As Long
     'Get the text file as raw binary, as the file encoding could be unknown. _
-     we'll work out the encoding (UTF-18/16, ANSI/ASCII) and convert the file _
+     we'll work out the encoding (UTF-8/16, ANSI/ASCII) and convert the file _
      into a standard Windows UTF-16 (UCS-2) string
     Dim FileBuffer() As Byte
-    Let ReadTextFile_AsArray = ReadBinaryFile_AsArray( _
+    Let FileReadText_AsArray = FileReadBinary_AsArray( _
         FilePath, FileBuffer _
     )
     
-    If ReadTextFile_AsArray <> 0 Then
+    If FileReadText_AsArray <> 0 Then
         Stop
         Exit Function
     End If
@@ -301,7 +426,7 @@ Public Function ReadTextFile_AsArray( _
 '    End If
 
     'Walk, validate and convert:
-    '----------------------------------------------------------------------------------
+    '-----------------------------------------------------------------------------------
     Dim i As Long
     'When parsing ASCII/UTF-8, bytes above 127 will be treated as ANSI _
      (Windows 1252 code-page) if invalid as a UTF-8 sequence
@@ -489,4 +614,103 @@ UTF8:
     Erase Windows1252ToUTF16
     
 Finish:
+End Function
+
+'PathCombine
+'======================================================================================
+'LeftPath       | The left-hand part of the path, e.g. "C:"
+'RightPath      | The right-hand part of the path, e.g. "path\file.ext"
+'---------------¦----------------------------------------------------------------------
+'Returns        | A new, combined and fixed, path; e.g. "C:\path\file.ext"
+'======================================================================================
+Public Function PathCombine( _
+    ByRef LeftPath As String, _
+    ByRef RightPath As String _
+) As String
+    'The Windows API requires an adequate buffer for the result
+    Let PathCombine = Space$(MAX_PATH)
+    
+    'Call the Windows API. This will return 0 if it failed
+    If api_PathCombine( _
+        ResultStringPointer:=APIString.Pointer, _
+         Path1StringPointer:=StrPtr(LeftPath), Path2StringPointer:=StrPtr(RightPath) _
+    ) = 0 Then
+        Let PathCombine = vbNullString
+    Else
+        'We need to trim the result to he null to know the actual length
+        Let PathCombine = APIString.TrimToNull().Text
+    End If
+End Function
+
+'PathFix : Fix a path, accounting for relative elements (e.g. "..", ".")
+'======================================================================================
+'Path           | Path to fix
+'---------------¦----------------------------------------------------------------------
+'Returns        | The path, now fixed. Any error returns null-string
+'======================================================================================
+Public Function PathFix( _
+    ByRef Path As String _
+) As String
+    'The Windows API requires an adequate buffer for the result
+    Let PathFix = Space$(MAX_PATH)
+    
+    'Call the Windows API. This will write a new null-terminated string
+    If api_PathCanonicalize(StrPtr(PathFix), StrPtr(Path)) = API_TRUE Then
+        'We need to trim the result to he null to know the actual length
+        Let PathFix = Left$(PathFix, InStr(PathFix, vbNullChar) - 1)
+    Else
+        'An error with the API, return null-string
+        Let PathFix = vbNullString
+    End If
+End Function
+
+'PathIsAbsolute
+'======================================================================================
+'Path           |
+'---------------¦----------------------------------------------------------------------
+'Returns        |
+'======================================================================================
+Public Function PathIsAbsolute( _
+    ByRef Path As String _
+) As Boolean
+    Let PathIsAbsolute = (api_PathIsRelative(StrPtr(Path)) = API_FALSE)
+End Function
+
+Public Function PathChangeExtension( _
+    ByRef Path As String, _
+    ByRef NewExtension As String _
+) As String
+    'Let's not modify the string passed to us!
+    Let PathChangeExtension = Path
+    
+    If Path = vbNullString Then Exit Function
+    
+    'We can use the Windows API to strip the file-extension for us
+    Call api_PathRemoveExtension(StrPtr(PathChangeExtension))
+    Let PathChangeExtension = Left$(PathChangeExtension, InStr(PathChangeExtension, vbNullChar) - 1)
+    
+    Let PathChangeExtension = PathChangeExtension & NewExtension
+End Function
+
+'SpecialFolder : Get the path to a system folder, e.g. AppData
+'======================================================================================
+'Returns        |
+'======================================================================================
+Public Function SpecialFolder( _
+    ByVal Folder As CSIDL _
+) As String
+    'Return null should this fail
+    Let SpecialFolder = vbNullString
+    
+    'Fill a buffer to receive the path
+    Dim Result As String
+    Let Result = Space$(MAX_PATH)
+    'Attempt to get the special folder path, creating it if it doesn't exist _
+     (e.g. the user deleted the "My Pictures" folder)
+    If api_SHGetFolderPath( _
+        0&, Folder Or CSIDL_FLAG_CREATE, 0&, SHGFP_TYPE_CURRENT, StrPtr(Result) _
+    ) = S_OK Then
+        'The string will be null-terminated; find the end and trim
+        Let SpecialFolder = Left$(Result, InStr(1, Result, vbNullChar) - 1)
+    End If
 End Function

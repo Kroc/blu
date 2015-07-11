@@ -1,0 +1,7 @@
+*
+!.gitignore
+
+!*.txt
+!*.bat
+!*.idl
+!*.tlb

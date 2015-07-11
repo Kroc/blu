@@ -19,27 +19,18 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluLog
 
-'Dependencies       bluString.cls
-'Last Updated       24-FEB-15
-'Last Update
+'Dependencies
+'Last Updated       12-JUL-15
+'Last Update        Rewrote to blindly append to file, rather than keep in memory
 
 '--------------------------------------------------------------------------------------
 
-'A class designed for maximum-speed logging of text, either to memory or disk. _
- An array of Strings is used instead of a single String to avoid ever having to _
- reallocate the text, this is much faster than using a bluString if all you're doing _
- is appending text
+'A class designed for maximum-speed logging of text to disk
 
 '/// CLASS ////////////////////////////////////////////////////////////////////////////
 
-Private My_Data() As String             'Our array of VB Strings
-Private My_Count As Long                'Number of Strings in the array (1-based)
-
-'The String array is only an array of pointers to Strings, therefore increasing the _
- array doesn't have to move all the String data too, but for maximum speed we will _
- use a buffer of log "lines" so that the pointer array doesn't have to be moved in _
- memory every time we add one line
-Private My_Buffer As Long
+'Where the log will be saved
+Private My_FilePath As String
 
 'Used for doing the String formatting before adding a line
 Private StrFormat As bluString
@@ -50,21 +41,22 @@ Private StrFormat As bluString
 '======================================================================================
 Private Sub Class_Initialize()
     Set StrFormat = New bluString
-    
-    'Begin with a 1024 line buffer in the String array
-    Let My_Buffer = 1024
-    ReDim Preserve My_Data(1 To My_Buffer) As String
 End Sub
 
 'CLASS Terminate
 '======================================================================================
 Private Sub Class_Terminate()
-    'This will unload each of the Strings in our array
-    Erase My_Data
     Set StrFormat = Nothing
 End Sub
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
+
+Public Property Get FilePath() As String
+    Let FilePath = My_FilePath
+End Property
+Public Property Let FilePath(ByRef NewPath As String)
+    Let My_FilePath = FilePath
+End Property
 
 'LogFormat : Add a line to the log, with marker replacement
 '======================================================================================
@@ -75,25 +67,22 @@ Public Sub LogFormat( _
          ByRef Text As String, _
     ParamArray FormatValues() As Variant _
 )
-    'The next index will be filled
-    Let My_Count = My_Count + 1
-    'If this goes over the number of reserved string indexes, _
-     increase the size of the array
-    If My_Count > My_Buffer Then
-        'Increase the buffer exponentially
-        Let My_Buffer = My_Buffer * 2
-        'Increase the array bounds
-        ReDim Preserve My_Data(1 To My_Buffer) As String
-    End If
-    
     'Are there any values to format?
-    If UBound(FormatValues) < 0 Then
-        'No, raise just the text given
-        Let My_Data(My_Count) = Text
-    Else
+    If UBound(FormatValues) >= 0 Then
         'Format the given log message before sending it up
         Let StrFormat.Text = Text
-        Let My_Data(My_Count) = StrFormat.Format(FormatValues).Text
+        Let Text = StrFormat.Format(FormatValues).Text
+    End If
+    
+    If LenB(My_FilePath) <> 0 Then
+        'TODO: Replace with API methods
+    
+        Dim FileNumber As Long
+        Let FileNumber = FreeFile
+        
+        Open My_FilePath For Append Lock Write As #FileNumber
+            Print #FileNumber, Text
+        Close #FileNumber
     End If
 End Sub
 
@@ -104,135 +93,14 @@ End Sub
 Public Sub Log( _
     Optional ByRef Text As String = vbNullString _
 )
-    'The next index will be filled
-    Let My_Count = My_Count + 1
-    'If this goes over the number of reserved string indexes, _
-     increase the size of the array
-    If My_Count > My_Buffer Then
-        'Increase the buffer exponentially
-        Let My_Buffer = My_Buffer * 2
-        'Increase the array bounds
-        ReDim Preserve My_Data(1 To My_Buffer) As String
+    If LenB(My_FilePath) <> 0 Then
+        'TODO: Replace with API methods
+    
+        Dim FileNumber As Long
+        Let FileNumber = FreeFile
+        
+        Open My_FilePath For Append Lock Write As #FileNumber
+            Print #FileNumber, Text
+        Close #FileNumber
     End If
-    
-    'Add the given text to the log
-    Let My_Data(My_Count) = Text
 End Sub
-
-'Clear : Empty the array
-'======================================================================================
-Public Sub Clear()
-    Erase My_Data: Let My_Count = 0
-End Sub
-
-'Concatenate : Return all Strings in the array as a combined String
-'======================================================================================
-'Returns        | A VB String of the combined array contents
-'======================================================================================
-Public Function Concatenate( _
-) As String
-    'Prepare a bluString buffer large enough for the whole array. _
-     VB's concatenation will be too slow
-    Dim ReturnString As bluString
-    Set ReturnString = New bluString
-    
-    Dim Length As Long, i As Long
-    For i = 1 To My_Count
-        'TODO: Check for overflow
-        Let Length = Length + Len(My_Data(i)) + Len(vbCrLf)
-    Next i
-    
-    Let ReturnString.Buffer = Length
-    
-    'TODO: We could do this with RtlMoveMemory ourselves and it should be faster
-    For i = 1 To My_Count
-        Call ReturnString.Append(My_Data(i)).Append(vbCrLf)
-    Next i
-    
-    Let Concatenate = ReturnString.Text
-    Set ReturnString = Nothing
-End Function
-
-'Count : Number of Strings in our array
-'======================================================================================
-Public Property Get Count() As Long
-    Let Count = My_Count
-End Property
-
-'Item : Get access to a String in the array
-'======================================================================================
-'Index          | An Index number for the array contents
-'---------------+----------------------------------------------------------------------
-'Returns        | The VB String in the array at the given Index
-'======================================================================================
-Public Property Get Item( _
-    ByVal Index As Long _
-) As String
-    'If there are no items in the array, we're out of bounds whatever the Index is
-    If My_Count = 0 Then Err.Raise (9): Exit Property
-    'Is the index within bounds?
-    If (Index < 1) Or (Index > My_Count) Then Err.Raise (9): Exit Property
-    'Return the VB String from our array
-    Let Item = My_Data(Index)
-End Property
-
-'Length : Get the length of a String in the array
-'======================================================================================
-'Index          | An Index number for the array contents
-'---------------+----------------------------------------------------------------------
-'Returns        | The length in Characters (not Bytes) of the Indexed String
-'======================================================================================
-Public Property Get Length( _
-    ByVal Index As Long _
-) As Long
-    'If there are no items in the array, we're out of bounds whatever the Index is
-    If My_Count = 0 Then Err.Raise (9): Exit Property
-    'Is the index within bounds?
-    If (Index < 1) Or (Index > My_Count) Then Err.Raise (9): Exit Property
-    'Return the length (in characters) of the String in the array
-    Let Length = Len(My_Data(Index))
-End Property
-
-'LengthBytes : Get the length of a String in the array, in Bytes
-'======================================================================================
-'Index          | An Index number for the array contents
-'---------------+----------------------------------------------------------------------
-'Returns        | The length in Bytes (not Characters) of the Indexed String
-'======================================================================================
-Public Property Get LengthBytes( _
-    ByVal Index As Long _
-) As Long
-    'Two Bytes to each Character
-    Let LengthBytes = Me.Length(Index) * 2
-End Property
-
-'Pointer : Get access to a String in the array
-'======================================================================================
-'Index          | An Index number for the array contents
-'---------------+----------------------------------------------------------------------
-'Returns        | The memory location of the String contents
-'======================================================================================
-Public Property Get Pointer( _
-    ByVal Index As Long _
-) As Long
-    'If there are no items in the array, we're out of bounds whatever the Index is
-    If My_Count = 0 Then Err.Raise (9): Exit Property
-    'Is the index within bounds?
-    If (Index < 1) Or (Index > My_Count) Then Err.Raise (9): Exit Property
-    'Return the String pointer -- be careful with this!
-    Let Pointer = StrPtr(My_Data(Index))
-End Property
-
-'/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
-
-'Increase : Increases the size of the array
-'======================================================================================
-'Returns        | The new index number
-'======================================================================================
-Private Function Increase() As Long
-    'The next index will be filled
-    Let My_Count = My_Count + 1
-    Let Increase = My_Count
-    'Increase the array bounds
-    ReDim Preserve My_Data(1 To Increase) As String
-End Function

@@ -1,0 +1,19 @@
+[
+        uuid(A6E3802C-CD9B-421b-9C8C-898318446C79)
+]       library WIN32
+{       
+        [dllname("KERNEL32")]
+        module kernel32
+        {
+                [
+                        entry("RtlMoveMemory"),
+                        helpstring("Copy memory from one location to another")
+                ]
+                void MoveMemory(
+                        [in] long OutputPointer, 
+                        [in] long SourcePointer, 
+                        [in] long LengthBytes
+                );
+
+        }
+};

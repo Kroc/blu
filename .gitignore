@@ -4,6 +4,7 @@
 !CORE
 !DEBUG
 !FILESYSTEM
+!TLB
 !UI
 
 !*.txt

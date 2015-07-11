@@ -79,7 +79,6 @@ End Function
 '======================================================================================
 'AddVar         | Some value of any type, including arrays
 '======================================================================================
-
 Public Sub AddVariant( _
     ByRef AddVar As Variant _
 )

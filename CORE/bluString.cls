@@ -12,22 +12,26 @@ Attribute VB_Creatable = True
 Attribute VB_PredeclaredId = False
 Attribute VB_Exposed = False
 Option Explicit
-'=======================================================================================
+'======================================================================================
 'blu : A Modern Metro-esque graphical toolkit; Copyright (C) Kroc Camen, 2013-15
 'Licenced under a Creative Commons 3.0 Attribution Licence
 '--You may use and modify this code how you see fit as long as you give credit
-'=======================================================================================
+'======================================================================================
 'CLASS :: bluString
 
-'Dependencies       None (self-contained)
-'Last Updated       6-JUL-15
-'Last Update        *   Added `SplitWords` method
-'                   *   Prepended "my_" to private methods to group them
+'Dependencies       WIN32.tlb, blu > blu_Sys, blu_Strings, blu_FileSystem
+'Last Updated       11-JUL-15
+'Last Update        *   Switched to using the type library for `RtlMoveMemory`
+'                   *   Rename `Trim*` methods to `TrimSpace*`
+'                   *   Added `TrimToNull` method
+'                   *   The `Text` property no longer resets the buffer
+'                       (important when re-using a bluString for API-work)
+'                   *   `Pointer` can now return a valid pointer for an empty string
 
 'Always get the latest version of this file at <github.com/Kroc/blu>. _
  Feedback can be sent to <kroc@camendesign.com>
 
-'---------------------------------------------------------------------------------------
+'--------------------------------------------------------------------------------------
 
 'A replacement for VB6's terribly slow String handling of any kind. _
  A buffer is used to minimise the number of times the reserved memory has to be _
@@ -47,101 +51,19 @@ Option Explicit
 ' * Ridiculously fast! _
     Half a million string comparisons per second? No problem
 
-'/// API ///////////////////////////////////////////////////////////////////////////////
+'/// API //////////////////////////////////////////////////////////////////////////////
 
-'This enum is provided to make working with Character Codes more readable and obvious. _
- The data for this was taken from <danshort.com/unicode>
-Public Enum UCS2
-'   Null                        "Start Of Heading"          "Start Of Text"
-:   C0_NUL:                     C0_SOH:                     C0_STX
-'   "End of TeXt"               "End Of Transmission"       "Enquiry"
-:   C0_ETX:                     C0_EOT:                     C0_ENQ
-'   "Acknowledge"               "Bell"                      "Backspace"
-:   C0_ACK:                     C0_BEL:                     C0_BS
-'   "Horizontal Tab"            "Line Feed"                 "Vertical Tab"
-:   C0_HT:                      C0_LF:                      C0_VT
-'   "Form Feed"                 "Carriage Return"           "Shift Out"
-:   C0_FF:                      C0_CR:                      C0_SO
-'   "Shift In"                  "Data Link Escape"          "Device Control One"
-:   C0_SI:                      C0_DLE:                     C0_DC1
-'   "Device Control Two"        "Device Control Three"      "Device Control Four"
-:   C0_DC2:                     C0_DC3:                     C0_DC4
-'   "Negative Acknowledge"      "Synchronous Idle"          "End of Transmission Block"
-:   C0_NAK:                     C0_SYN:                     C0_ETB
-'   "Cancel"                    "End of Medium"             "Substitute"
-:   C0_CAN:                     C0_EM:                      C0_SUB
-'   "Escape"                    "File Separator"            "Group Separator"
-:   C0_ESC:                     C0_FS:                      C0_GS
-'   "Record Separator"          "Unit Separator"
-:   C0_RS:                      C0_US
-    
-'                               !                           "
-:   SPACE_:                     EXCLAMATION_MARK:           QUOTATION_MARK
-'   #                           $                           %
-:   NUMBER_SIGN:                DOLLAR_SIGN:                PERCENT_SIGN
-'   &                           '                           (
-:   AMPERSAND:                  APOSTROPHE:                 LEFT_PARENTHESIS
-'   )                           *                           +
-:   RIGHT_PARENHESIS:           ASTERISK:                   PLUS_SIGN
-'   ,                           -                           .
-:   COMMA:                      HYPHEN_MINUS:               FULL_STOP
-'   /                           0                           1
-:   SOLIDUS:                    DIGIT_ZERO:                 DIGIT_ONE
-'   2                           3                           4
-:   DIGIT_TWO:                  DIGIT_THREE:                DIGIT_FOUR
-'   5                           6                           7
-:   DIGIT_FIVE:                 DIGIT_SIX:                  DIGIT_SEVEN
-'   8                           9                           :
-:   DIGIT_EIGHT:                DIGIT_NINE:                 COLON
-'   ;                           <                           =
-:   SEMICOLON:                  LESS_THAN_SIGN:             EQUALS_SIGN
-'   >                           ?                           @
-:   GREATER_THAN_SIGN:          QUESTION_MARK:              COMMERCIAL_AT
-    
-:   LATIN_CAPITAL_LETTER_A:     LATIN_CAPITAL_LETTER_B:     LATIN_CAPITAL_LETTER_C
-:   LATIN_CAPITAL_LETTER_D:     LATIN_CAPITAL_LETTER_E:     LATIN_CAPITAL_LETTER_F
-:   LATIN_CAPITAL_LETTER_G:     LATIN_CAPITAL_LETTER_H:     LATIN_CAPITAL_LETTER_I
-:   LATIN_CAPITAL_LETTER_J:     LATIN_CAPITAL_LETTER_K:     LATIN_CAPITAL_LETTER_L
-:   LATIN_CAPITAL_LETTER_M:     LATIN_CAPITAL_LETTER_N:     LATIN_CAPITAL_LETTER_O
-:   LATIN_CAPITAL_LETTER_P:     LATIN_CAPITAL_LETTER_Q:     LATIN_CAPITAL_LETTER_R
-:   LATIN_CAPITAL_LETTER_S:     LATIN_CAPITAL_LETTER_T:     LATIN_CAPITAL_LETTER_U
-:   LATIN_CAPITAL_LETTER_V:     LATIN_CAPITAL_LETTER_W:     LATIN_CAPITAL_LETTER_X
-:   LATIN_CAPITAL_LETTER_Y:     LATIN_CAPITAL_LETTER_Z
-    
-'   [                           \                           ]
-:   LEFT_SQUARE_BRACKET:        REVERSE_SOLIDUS:            RIGHT_SQUARE_BRACKET
-'   ^                           _                           `
-:   CIRCUMFLEX_ACCENT:          LOW_LINE:                   GRAVE_ACCENT
-    
-:   LATIN_SMALL_LETTER_A:       LATIN_SMALL_LETTER_B:       LATIN_SMALL_LETTER_C
-:   LATIN_SMALL_LETTER_D:       LATIN_SMALL_LETTER_E:       LATIN_SMALL_LETTER_F
-:   LATIN_SMALL_LETTER_G:       LATIN_SMALL_LETTER_H:       LATIN_SMALL_LETTER_I
-:   LATIN_SMALL_LETTER_J:       LATIN_SMALL_LETTER_K:       LATIN_SMALL_LETTER_L
-:   LATIN_SMALL_LETTER_M:       LATIN_SMALL_LETTER_N:       LATIN_SMALL_LETTER_O
-:   LATIN_SMALL_LETTER_P:       LATIN_SMALL_LETTER_Q:       LATIN_SMALL_LETTER_R
-:   LATIN_SMALL_LETTER_S:       LATIN_SMALL_LETTER_T:       LATIN_SMALL_LETTER_U
-:   LATIN_SMALL_LETTER_V:       LATIN_SMALL_LETTER_W:       LATIN_SMALL_LETTER_X
-:   LATIN_SMALL_LETTER_Y:       LATIN_SMALL_LETTER_Z
-
-'   {                           |                           }
-:   LEFT_CURLY_BRACKET:         VERTICAL_LINE:              RIGHT_CURLY_BRACKET
-'   ~                           "Delete"
-:   TILDE:                      C0_DEL
+'In VB6 True is -1 and False is 0, but in the Win32 API it's 1 for True
+Private Enum BOOL
+    API_TRUE = 1
+    API_FALSE = 0
 End Enum
 
 'Memory manipulation:
-'---------------------------------------------------------------------------------------
-
-'Copy raw memory from one place to another _
- <msdn.microsoft.com/en-us/library/windows/desktop/aa366535%28v=vs.85%29.aspx>
-Private Declare Sub api_RtlMoveMemory Lib "kernel32" Alias "RtlMoveMemory" ( _
-    ByVal DestinationPointer As Long, _
-    ByVal SourcePointer As Long, _
-    ByVal Length As Long _
-)
+'--------------------------------------------------------------------------------------
 
 'Fill memory with zeroes _
- <msdn.microsoft.com/en-us/library/windows/desktop/aa366920%28v=vs.85%29.aspx>
+ <msdn.microsoft.com/en-us/library/windows/desktop/aa366920(v=vs.85).aspx>
 Private Declare Sub api_RtlZeroMemory Lib "kernel32" Alias "RtlZeroMemory" ( _
     ByVal DestinationPointer As Long, _
     ByVal Length As Long _
@@ -153,34 +75,8 @@ Private Declare Sub api_PutMem4 Lib "msvbvm60" Alias "PutMem4" ( _
     ByVal Value As Long _
 )
 
-'Windows Version:
-'---------------------------------------------------------------------------------------
-
-'In VB6 True is -1 and False is 0, but in the Win32 API it's 1 for True
-Private Enum BOOL
-    API_TRUE = 1
-    API_FALSE = 0
-End Enum
-
-'Structure for obtaining the Windows version _
- <msdn.microsoft.com/en-us/library/windows/desktop/ms724834%28v=vs.85%29.aspx>
-Private Type OSVERSIONINFO
-    SizeOfMe As Long
-    MajorVersion As Long
-    MinorVersion As Long
-    BuildNumber As Long
-    PlatformID As Long
-    ServicePack As String * 128
-End Type
-
-'Get the Windows version _
- <msdn.microsoft.com/en-us/library/windows/desktop/ms724451%28v=vs.85%29.aspx>
-Private Declare Function api_GetVersionEx Lib "kernel32" Alias "GetVersionExA" ( _
-    ByRef VersionInfo As OSVERSIONINFO _
-) As BOOL
-
 'Locale Mapping (for case conversion and string comparison):
-'---------------------------------------------------------------------------------------
+'--------------------------------------------------------------------------------------
 'This page helped with working out correct methods of using Unicode API calls _
  <www.xtremevbtalk.com/showthread.php?t=68956>
 'This page helped with translating the MSDN documentation into VB6; _
@@ -233,7 +129,7 @@ Private Enum LCMAP
 End Enum
 
 'Comparing Strings:
-'---------------------------------------------------------------------------------------
+'--------------------------------------------------------------------------------------
 
 'Binary string comparison (case-sensitive) _
  <msdn.microsoft.com/en-us/library/windows/desktop/dd317762(v=vs.85).aspx>
@@ -300,7 +196,7 @@ Private Enum CSTR_
 End Enum
 
 'Unicode character properties:
-'---------------------------------------------------------------------------------------
+'--------------------------------------------------------------------------------------
 'Returns an array of Unicode character properties for a string _
  <msdn.microsoft.com/en-us/library/windows/desktop/dd318119(v=vs.85).aspx>
 Private Declare Function api_GetStringType Lib "kernel32" Alias "GetStringTypeW" ( _
@@ -337,7 +233,7 @@ Public Enum C1
 End Enum
 
 'String Searching & Replacing:
-'---------------------------------------------------------------------------------------
+'--------------------------------------------------------------------------------------
 'Find the first occurance of a string in another [case-sensitive] _
  <msdn.microsoft.com/en-us/library/windows/desktop/bb773436(v=vs.85).aspx>
 Private Declare Function api_StrStr Lib "shlwapi" Alias "StrStrW" ( _
@@ -361,18 +257,13 @@ Private Type bluString_FormatData
     ByteCount As Long
 End Type
 
-'/// CLASS /////////////////////////////////////////////////////////////////////////////
+'Counts the length of a string, looking for the first Null _
+ <msdn.microsoft.com/en-us/library/windows/desktop/ms647492(v=vs.85).aspx>
+Private Declare Function api_lstrlen Lib "kernel32" Alias "lstrlenW" ( _
+    ByVal lpString As Long _
+) As Long
 
-'Once the Windows version has been detected, we want to be able to refer to it _
- as fast as possible. It's far too slow to fetch the Windows Version every time we _
- need it, but it's also a little slow to test the version number thousands of times. _
- We therefore cache the result of the version comparison in this fashion:
-Private Enum bluString_WindowsVersion
-    XP_OR_LOWER = -1
-    GET_WINDOWS_VERSION = 0
-    VISTA_OR_HIGHER = 1
-End Enum
-Private WindowsVersion As bluString_WindowsVersion
+'/// CLASS ////////////////////////////////////////////////////////////////////////////
 
 'This is where we'll store our "string" as an array of Unicode (UCS-2) points
 Private Data() As Integer
@@ -409,10 +300,17 @@ Public Enum BUFFER_SIZE
      'Longs, it goes negative above 2 billion, limiting us to 1 billion byte pairs.
     BUFFER_1G = 2 ^ 30:     BUFFER_MAX = BUFFER_1G
     
+    'When working with file paths, this is the internal limit for short-paths
+    MAX_PATH = 260
+    
     'Without the buffer pre-set, it will default to 128 chars which is enough room
      'for growth for most string handling and not too memory intensive (256 bytes)
     DEFAULT_BUFFER = BUFFER_128
 End Enum
+
+'Set to 1 once the memory has been reserved, _
+ this will allow us to get the pointer to an empty string (for API usage)
+Private Reserved As Long
 
 'The marker used for formatting strings. As a constant here, it saves VB allocating _
  and deallocating a temporary String everytime we mention it
@@ -423,7 +321,7 @@ Private Const FORMAT_MARKER As String = "{$}"
 Private My_CaseSensitive As Long
 
 'Stuff for doing CRCs:
-'---------------------------------------------------------------------------------------
+'--------------------------------------------------------------------------------------
 'The CRC function of this class is from "Calculating CRC32 With VB" by Steve McMahon _
  <www.vbaccelerator.com/home/VB/Code/Libraries/CRC32/article.asp> which was _
  derived from from the VB.NET CRC32 algorithm by Paul Caton
@@ -443,32 +341,28 @@ Private My_CRC As Long
 'A flag to mark when the string has changed and the CRC is no longer valid
 Private CRCValid As Long
 
-'/// EVENTS ////////////////////////////////////////////////////////////////////////////
+'/// EVENTS ///////////////////////////////////////////////////////////////////////////
 
-'CLASS Initialize
-'=======================================================================================
-Private Sub Class_Initialize()
-    'NOTE: The buffer is not initialised to begin with _
-          (therefore not wasting memory for a string that is not yet populated, _
-           but more so that the reserved memory does not have to be reallocated _
-           if a String larger than the default buffer is created first)
-End Sub
-
+'NOTE: The buffer is not initialised to begin with _
+       (therefore not wasting memory for a string that is not yet populated, _
+        but more so that the reserved memory does not have to be reallocated _
+        if a String larger than the default buffer is created first)
+           
 'CLASS Terminate
-'=======================================================================================
+'======================================================================================
 Private Sub Class_Terminate()
     'Free up the reserved memory
-    Erase Data, CRCTable
+    Call Me.Destroy
 End Sub
 
-'/// PUBLIC INTERFACE //////////////////////////////////////////////////////////////////
+'/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
 
 'Append : Add another string to the end of the current string
-'=======================================================================================
+'======================================================================================
 'Text           | The String to be appended
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function Append( _
     ByRef Text As String _
 ) As bluString
@@ -486,15 +380,15 @@ Public Function Append( _
     Let CRCValid = 0
     
     'Copy the new string in
-    Call api_RtlMoveMemory( _
-        DestinationPointer:=VarPtr(Data(Start)), _
-             SourcePointer:=StrPtr(Text), _
-                    Length:=LenB(Text) _
+    Call Win32.kernel32.MoveMemory( _
+        OutputPointer:=VarPtr(Data(Start)), _
+        SourcePointer:=StrPtr(Text), _
+          LengthBytes:=LenB(Text) _
     )
 End Function
 
 'Buffer : Number of characters to reserve in memory for the string
-'=======================================================================================
+'======================================================================================
 Public Property Get Buffer() As BUFFER_SIZE
     Let Buffer = My_Buffer
 End Property
@@ -530,10 +424,12 @@ Public Property Let Buffer( _
     ReDim Preserve Data(0 To My_Buffer) As Integer
     'Ensure it's null-terminated!
     Let Data(My_Buffer) = 0
+    'Note that the memory has been reserved
+    Let Reserved = 1
 End Property
 
 'CaseSensitive : Turn case-sensitivity on or off
-'=======================================================================================
+'======================================================================================
 Public Property Get CaseSensitive() As Boolean
     Let CaseSensitive = My_CaseSensitive
 End Property
@@ -542,7 +438,7 @@ Public Property Let CaseSensitive(ByRef Mode As Boolean)
 End Property
 
 'Char : The Unicode (UCS-2) point of the character at the provided character index
-'=======================================================================================
+'======================================================================================
 Public Property Get Char( _
     ByVal Index As Long _
 ) As UCS2
@@ -590,13 +486,13 @@ Public Property Let Char( _
 End Property
 
 'CharInsert : Inserts a single Unicode character code
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
 'Char           | A Unicode character code (0 to 65535)
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function CharInsert( _
     ByVal Index As Long, _
     ByVal Char As UCS2 _
@@ -618,10 +514,10 @@ Public Function CharInsert( _
     Let CRCValid = 0
     
     'Shift the upper portion of our string up
-    Call api_RtlMoveMemory( _
-        DestinationPointer:=VarPtr(Data(Index + 1)), _
-             SourcePointer:=VarPtr(Data(Index)), _
-                    Length:=(My_Length - Index - 1) * 2 _
+    Call Win32.kernel32.MoveMemory( _
+        OutputPointer:=VarPtr(Data(Index + 1)), _
+        SourcePointer:=VarPtr(Data(Index)), _
+          LengthBytes:=(My_Length - Index - 1) * 2 _
     )
     
     'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
@@ -632,13 +528,13 @@ Public Function CharInsert( _
 End Function
 
 'CharIsAlpha : Returns true if the character at the index is a letter
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
 '[IsASCII]      | If True, only A-Z will validate, accented characters etc. won't
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | True if the character is alpha (a-z, but also non-latin characters)
-'=======================================================================================
+'======================================================================================
 Public Property Get CharIsAlpha( _
              ByVal Index As Long, _
     Optional ByRef IsASCII As Boolean = False _
@@ -660,13 +556,13 @@ Public Property Get CharIsAlpha( _
 End Property
 
 'CharIsAlphaNumeric : Returns true if the character at the index is a letter or number
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
 '[IsASCII]      | If True, only A-Z&0-9 will validate, accented characters etc. won't
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | True if the character is A-Z, 0-9
-'=======================================================================================
+'======================================================================================
 Public Property Get CharIsAlphaNumeric( _
              ByVal Index As Long, _
     Optional ByRef IsASCII As Boolean = False _
@@ -690,12 +586,12 @@ Public Property Get CharIsAlphaNumeric( _
 End Property
 
 'CharIsHex : Returns true if the character at the index is a hexadecimal digit
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | True if the character is a hexadecimal digit (0-9 & A-F)
-'=======================================================================================
+'======================================================================================
 Public Property Get CharIsHex( _
     ByVal Index As Long _
 ) As Boolean
@@ -704,13 +600,13 @@ Public Property Get CharIsHex( _
 End Property
 
 'CharIsNumeric : Returns true if the character at the index is a number
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
 '[IsASCII]      | If True, only 0-9 will validate, non-latin/wide numbers etc. won't
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | True if the character is a number
-'=======================================================================================
+'======================================================================================
 Public Property Get CharIsNumeric( _
              ByVal Index As Long, _
     Optional ByRef IsASCII As Boolean = False _
@@ -728,12 +624,12 @@ Public Property Get CharIsNumeric( _
 End Property
 
 'CharIsLower : Returns true if the character at the index is lower-case
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | True if the character is lower-case
-'=======================================================================================
+'======================================================================================
 Public Property Get CharIsLower( _
     ByVal Index As Long _
 ) As Boolean
@@ -742,12 +638,12 @@ Public Property Get CharIsLower( _
 End Property
 
 'CharIsSpace : Returns true if the character at the index is white-space or invisible
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | True if the character is invisible or white-space
-'=======================================================================================
+'======================================================================================
 Public Property Get CharIsSpace( _
     ByVal Index As Long _
 ) As Boolean
@@ -756,12 +652,12 @@ Public Property Get CharIsSpace( _
 End Property
 
 'CharIsUpper : Returns true if the character at the index is upper-case
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | True if the character is upper-case
-'=======================================================================================
+'======================================================================================
 Public Property Get CharIsUpper( _
     ByVal Index As Long _
 ) As Boolean
@@ -770,12 +666,12 @@ Public Property Get CharIsUpper( _
 End Property
 
 'CharIsVisible : Returns true if the character at the index is 'visible'
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | True if the character is visible
-'=======================================================================================
+'======================================================================================
 Public Property Get CharIsVisible( _
     ByVal Index As Long _
 ) As Boolean
@@ -786,13 +682,13 @@ Public Property Get CharIsVisible( _
 End Property
 
 'CharProperties : Returns the Unicode properties for a character in the string
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | A bit battern that describes the Unicode properties of the character
 '               | as defined in the C1 enum
-'=======================================================================================
+'======================================================================================
 Public Property Get CharProperties( _
     ByVal Index As Long _
 ) As C1
@@ -809,9 +705,9 @@ Public Property Get CharProperties( _
 End Property
 
 'CharPull : Removes the last character of the string and returns the character code
-'=======================================================================================
+'======================================================================================
 'Returns        | A Unicode character point (0 to 65535)
-'=======================================================================================
+'======================================================================================
 Public Function CharPull() As UCS2
     'If there are no characters, just return null
     If My_Length = 0 Then Exit Function
@@ -825,11 +721,11 @@ Public Function CharPull() As UCS2
 End Function
 
 'CharPush : Appends a single character code to the end of the string
-'=======================================================================================
+'======================================================================================
 'Char           | Unicode character point (0 to 65535)
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function CharPush( _
     ByVal Char As UCS2 _
 ) As bluString
@@ -854,11 +750,11 @@ Public Function CharPush( _
 End Function
 
 'CharPushInt : Appends a character code to the end of our string with less validation
-'=======================================================================================
+'======================================================================================
 'Char           | Unicode character point as signed Integer (-32768 to 32767)
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function CharPushInt( _
     ByVal Char As Integer _
 ) As bluString
@@ -876,12 +772,12 @@ Public Function CharPushInt( _
 End Function
 
 'CharRemove : Removes a single character from the string and returns its code
-'=======================================================================================
+'======================================================================================
 '[Index]        | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | A Unicode character point (0 to 65535)
-'=======================================================================================
+'======================================================================================
 Public Function CharRemove( _
     Optional ByVal Index As Long = 0 _
 ) As UCS2
@@ -905,9 +801,9 @@ Public Function CharRemove( _
 End Function
 
 'Clear : Go back to an empty string, keeps the buffer size
-'=======================================================================================
+'======================================================================================
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function Clear() As bluString
     'Allow method chaining
     Set Clear = Me
@@ -918,14 +814,14 @@ Public Function Clear() As bluString
 End Function
 
 'Clone : Duplicate our string (or subportion) into another bluString instance
-'=======================================================================================
+'======================================================================================
 '[Index]        | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
 '[Length]       | Number of characters to copy, can be 0 which will imply the
 '               | remainder of the string, from the Index
-'---------------¦----------------------------------------------------------------------
+'---------------¦---------------------------------------------------------------------
 'Returns        | A new bluString instance
-'=======================================================================================
+'======================================================================================
 Public Function Clone( _
     Optional ByVal Index As Long = 0, _
     Optional ByVal Length As Long = 0 _
@@ -941,17 +837,17 @@ Public Function Clone( _
     'Set the destination size
     Let Clone.Length = Length
     'Copy the text across (if there is any)
-    If My_Length > 0 Then Call api_RtlMoveMemory( _
-        DestinationPointer:=Clone.Pointer(Index), _
-             SourcePointer:=VarPtr(Data(0)), _
-                    Length:=Length * 2 _
+    If My_Length > 0 Then Call Win32.kernel32.MoveMemory( _
+        OutputPointer:=Clone.Pointer(Index), _
+        SourcePointer:=VarPtr(Data(0)), _
+          LengthBytes:=Length * 2 _
     )
 End Function
 
 'CRC : Do a Cyclic-Redundancy-Check on our string
-'=======================================================================================
+'======================================================================================
 'Returns        | CRC value of our string
-'=======================================================================================
+'======================================================================================
 Public Property Get CRC() As Long
     Dim i As Long, Value As Long
     
@@ -981,7 +877,7 @@ Public Property Get CRC() As Long
         Let CRCInitialized = 1
     End If
     
-    '-----------------------------------------------------------------------------------
+    '----------------------------------------------------------------------------------
     
     'Has the CRC already been calculated?
     If CRCValid = 0 Then
@@ -1008,9 +904,9 @@ Public Property Get CRC() As Long
 End Property
 
 'Destroy : Sets the string to null and frees all memory
-'=======================================================================================
+'======================================================================================
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function Destroy() As bluString
     'Allow method chaining
     Set Destroy = Me
@@ -1021,16 +917,18 @@ Public Function Destroy() As bluString
     'Reset the buffer length so that any new content will create a new, _
      appropriately-sized buffer
     Let My_Buffer = 0
+    'Note that no memory is reserved
+    Let Reserved = 0
     'Changes to our string will invalidate the CRC
     Let CRCValid = 0
 End Function
 
 'Equals : A fast method to check if one string equals another
-'=======================================================================================
+'======================================================================================
 'Text           | VB String to compare our string against
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | True if strings are equal, False if not
-'=======================================================================================
+'======================================================================================
 Public Function Equals( _
     ByRef Text As String _
 ) As Boolean
@@ -1048,16 +946,13 @@ Public Function Equals( _
     End If
     
     'Are we doing a case-insensitive comparison?
-    '...................................................................................
+    '..................................................................................
     If My_CaseSensitive = 0 Then
         'Case sensitivity flags in the API is different for each operating-system
         Dim Flags As CompareString_Flags
         
-        'If the Windows version hasn't been determined yet, do so
-        If WindowsVersion = GET_WINDOWS_VERSION Then Call my_GetWindowsVersion
-        
         'Check for Windows Vista and above:
-        If WindowsVersion > 0 Then
+        If blu.sys.WindowsAPILevel = VISTA_OR_HIGHER Then
             'Windows Vista and above have more capable case-comparisons
             Let Flags = LINGUISTIC_IGNORECASE
             'NOTE: The use of null on the first parameter causes Windows to use the _
@@ -1084,7 +979,7 @@ Public Function Equals( _
         End If
     
     'Case-sensitive (binary) comparison
-    '...................................................................................
+    '..................................................................................
     Else
         Let Equals = (api_CompareStringOrdinal( _
             String1Pointer:=StrPtr(Text), String1Length:=-1, _
@@ -1095,11 +990,11 @@ Public Function Equals( _
 End Function
 
 'Format : Replace markers in the text with the values provided
-'=======================================================================================
+'======================================================================================
 'Params...      | An array of values (strings, numbers &c.) to insert
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | A new bluString instance, formatted according to our string
-'=======================================================================================
+'======================================================================================
 Public Function Format( _
     ParamArray Params() As Variant _
 ) As bluString
@@ -1125,7 +1020,7 @@ Public Function Format( _
         Call my_FormatVariant(Params(Param), FormatData)
     Next Param
     
-    '-----------------------------------------------------------------------------------
+    '----------------------------------------------------------------------------------
     
     'Speed up references to the format marker we'll be searching for
     Dim MarkerLengthB As Long:  Let MarkerLengthB = LenB(FORMAT_MARKER)
@@ -1170,10 +1065,10 @@ Continue:
      we don't need to move parts of the string about
     If Difference = 0 Then
         'Replace the marker
-        Call api_RtlMoveMemory( _
-            DestinationPointer:=ResultPointer, _
-                 SourcePointer:=FormatData(Param).Pointer, _
-                        Length:=FormatData(Param).ByteCount _
+        Call Win32.kernel32.MoveMemory( _
+            OutputPointer:=ResultPointer, _
+            SourcePointer:=FormatData(Param).Pointer, _
+              LengthBytes:=FormatData(Param).ByteCount _
         )
     Else
         'Calculate the remainder portion of our string that will be moved
@@ -1193,10 +1088,10 @@ Continue:
         End If
         
         'Shift up or down the remainder portion of our string
-        Call api_RtlMoveMemory( _
-            DestinationPointer:=ResultPointer + FormatData(Param).ByteCount, _
-                 SourcePointer:=ResultPointer + MarkerLengthB, _
-                        Length:=Remainder _
+        Call Win32.kernel32.MoveMemory( _
+            OutputPointer:=ResultPointer + FormatData(Param).ByteCount, _
+            SourcePointer:=ResultPointer + MarkerLengthB, _
+              LengthBytes:=Remainder _
         )
         'If the replacement string is shorter than the search string, _
          our string will get shorter overall
@@ -1210,10 +1105,10 @@ Continue:
         End If
         
         'Copy the replacement string in
-        Call api_RtlMoveMemory( _
-            DestinationPointer:=ResultPointer, _
-                 SourcePointer:=FormatData(Param).Pointer, _
-                        Length:=FormatData(Param).ByteCount _
+        Call Win32.kernel32.MoveMemory( _
+            OutputPointer:=ResultPointer, _
+            SourcePointer:=FormatData(Param).Pointer, _
+              LengthBytes:=FormatData(Param).ByteCount _
         )
     End If
     
@@ -1224,16 +1119,16 @@ Continue:
     'Proceed with the next search
     GoTo Continue
     
-    '-----------------------------------------------------------------------------------
+    '----------------------------------------------------------------------------------
 Finish:
     'And clean up
     Erase FormatData
 End Function
 
 'GetArray : Returns an Integer (Unicode) array copy of our string
-'=======================================================================================
+'======================================================================================
 'Returns        | An array of Unicode (UCS-2) Integer points
-'=======================================================================================
+'======================================================================================
 Public Function GetArray( _
 ) As Integer()
     Dim ReturnArray() As Integer
@@ -1243,22 +1138,22 @@ Public Function GetArray( _
     'Size the return array to fit our string content (not the buffer)
     ReDim ReturnArray(0 To My_Length - 1) As Integer
     'Copy our string into the return array
-    Call api_RtlMoveMemory( _
-        DestinationPointer:=VarPtr(ReturnArray(0)), _
-             SourcePointer:=VarPtr(Data(0)), _
-                    Length:=My_LengthB _
+    Call Win32.kernel32.MoveMemory( _
+        OutputPointer:=VarPtr(ReturnArray(0)), _
+        SourcePointer:=VarPtr(Data(0)), _
+          LengthBytes:=My_LengthB _
     )
     Let GetArray = ReturnArray
 End Function
 
 'Insert : Insert some text in the middle of the existing string
-'=======================================================================================
+'======================================================================================
 'Text           | VB String to insert into our string
 'Index          | Position within our string (0-based). Can be negative, in which case
 '               | the Index is calculated from the end of the string working backwards
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function Insert( _
     ByRef Text As String, _
     ByVal Index As Long _
@@ -1281,28 +1176,28 @@ Public Function Insert( _
     'Shift the upper portion of our string up to make room for the inserted string
     Call my_UnsafeCopy(Index, Index + Len(Text), My_Length - Index)
     'Insert the new string
-    Call api_RtlMoveMemory( _
-        DestinationPointer:=VarPtr(Data(Index)), _
-             SourcePointer:=StrPtr(Text), _
-                    Length:=LenB(Text) _
+    Call Win32.kernel32.MoveMemory( _
+        OutputPointer:=VarPtr(Data(Index)), _
+        SourcePointer:=StrPtr(Text), _
+          LengthBytes:=LenB(Text) _
     )
 End Function
 
 'IsNull
-'=======================================================================================
+'======================================================================================
 'Returns        | True if our string is Null (length = 0), False otherwise
-'=======================================================================================
+'======================================================================================
 Public Property Get IsNull() As Boolean
     'This is intended for readability, since you can obviously just check Length = 0
     Let IsNull = (My_Length = 0)
 End Property
 
 'Join : Appends another bluString to the end of this one
-'=======================================================================================
+'======================================================================================
 'bluStringObj   | Another bluString instance to take text from
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function Join( _
     ByRef bluStringObj As bluString _
 ) As bluString
@@ -1320,28 +1215,25 @@ Public Function Join( _
     Let CRCValid = 0
     
     'Copy the new string in
-    Call api_RtlMoveMemory( _
-        DestinationPointer:=VarPtr(Data(Start)), _
-             SourcePointer:=bluStringObj.Pointer, _
-                    Length:=bluStringObj.LengthBytes _
+    Call Win32.kernel32.MoveMemory( _
+        OutputPointer:=VarPtr(Data(Start)), _
+        SourcePointer:=bluStringObj.Pointer, _
+          LengthBytes:=bluStringObj.LengthBytes _
     )
 End Function
 
 'LCase : Convert our string to lowercase
-'=======================================================================================
+'======================================================================================
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function LCase() As bluString
     'Allow method chaining
     Set LCase = Me
     'Nullstring won't change!
     If My_Length = 0 Then Exit Function
     
-    'If the Windows version hasn't been determined yet, do so
-    If WindowsVersion = GET_WINDOWS_VERSION Then Call my_GetWindowsVersion
-    
     'Check for Windows Vista and above:
-    If WindowsVersion > 0 Then
+    If blu.sys.WindowsAPILevel = VISTA_OR_HIGHER Then
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
         Call api_LCMapStringEx( _
@@ -1370,14 +1262,14 @@ Public Function LCase() As bluString
 End Function
 
 'Left : Cut the string short to a given number of characters
-'=======================================================================================
+'======================================================================================
 'Length         | Number of characters to keep of the string. If negative, this will
 '               | be calculated backwards from the end of the string
 '[FillChar]     | If the new Length is longer than our string, the gap will be
 '               | filled with the given character, which defaults to Space
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function Left( _
              ByRef Length As Long, _
     Optional ByRef FillChar As UCS2 = SPACE_ _
@@ -1418,7 +1310,7 @@ Public Function Left( _
 End Function
 
 'Length : Length of the actual stored text (1-based), not the buffer
-'=======================================================================================
+'======================================================================================
 Public Property Get Length() As Long
     Let Length = My_Length
 End Property
@@ -1441,20 +1333,20 @@ Public Property Let Length( _
 End Property
 
 'LengthBytes : Length of the content in bytes, cannot be set
-'=======================================================================================
+'======================================================================================
 Public Property Get LengthBytes() As Long
     Let LengthBytes = My_LengthB
 End Property
 
 'Mid : Reduce the string to a sub-string portion
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case
 '               | the Index is calculated from the end of the string working backwards
 '[Length]       | Number of characters to keep, can be 0 which will imply the
 '               | remainder of the string, from the Index
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function Mid( _
              ByVal Index As Long, _
     Optional ByVal Length As Long = 0 _
@@ -1477,13 +1369,13 @@ Public Function Mid( _
 End Function
 
 'Overwrite : Overwrite a portion of our string with text
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case
 '               | the Index is calculated from the end of the string working backwards
 'Text           | New text to overwrite our string at the given Index
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function Overwrite( _
     ByVal Index As Long, _
     ByRef Text As String _
@@ -1501,10 +1393,10 @@ Public Function Overwrite( _
     If Not my_ValidateRange(Index, Length) Then Err.Raise (9): Exit Function
     
     'Now just copy the new text over the top of our string
-    Call api_RtlMoveMemory( _
-        DestinationPointer:=VarPtr(Data(Index)), _
-             SourcePointer:=StrPtr(Text), _
-                    Length:=Length * 2 _
+    Call Win32.kernel32.MoveMemory( _
+        OutputPointer:=VarPtr(Data(Index)), _
+        SourcePointer:=StrPtr(Text), _
+          LengthBytes:=Length * 2 _
     )
     
     'Changes to our string will invalidate the CRC
@@ -1512,11 +1404,11 @@ Public Function Overwrite( _
 End Function
 
 'Pointer : Allow access to the "string" pointer for external copying
-'=======================================================================================
+'======================================================================================
 '[Index]        | Position within our string (0-based)
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | Memory pointer to the character index within our string
-'=======================================================================================
+'======================================================================================
 Public Property Get Pointer( _
     Optional ByVal Index As Long = 0 _
 ) As Long
@@ -1524,18 +1416,18 @@ Public Property Get Pointer( _
      a negative Index will work backwards from the end of the string
     If Not my_ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Property
     
-    'If a null string, return a null pointer (for potential API use)
-    If My_Length = 0 _
+    'If the buffer hasn't been reserved yet, return a null-pointer
+    If Reserved = 0 _
         Then Let Pointer = 0 _
         Else Let Pointer = VarPtr(Data(Index))
 End Property
 
 'Prepend : Add our string to the end of the one provided
-'=======================================================================================
+'======================================================================================
 'Text           | VB String to prepend to our string
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 'And no, "prefix" is not the right word for this!
 Public Function Prepend( _
     ByRef Text As String _
@@ -1556,17 +1448,17 @@ Public Function Prepend( _
     'Shift our string up
     Call my_UnsafeCopy(0, Start, My_Length)
     'Copy the new string in
-    Call api_RtlMoveMemory( _
-        DestinationPointer:=VarPtr(Data(0)), _
-             SourcePointer:=StrPtr(Text), _
-                    Length:=LenB(Text) _
+    Call Win32.kernel32.MoveMemory( _
+        OutputPointer:=VarPtr(Data(0)), _
+        SourcePointer:=StrPtr(Text), _
+          LengthBytes:=LenB(Text) _
     )
 End Function
 
 'ReduceBuffer : Free some memory by reducing the buffer to the string length
-'=======================================================================================
+'======================================================================================
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function ReduceBuffer() As bluString
     'Of course you could just use `bluString.Buffer = bluString.Length`, but this is _
      intended to be more obvious and safer for potential future changes / expansion. _
@@ -1579,13 +1471,13 @@ Public Function ReduceBuffer() As bluString
 End Function
 
 'Remove : Cut some text out of the middle of the existing string
-'=======================================================================================
+'======================================================================================
 'Index          | Position within our string (0-based). Can be negative, in which case
 '               | the Index is calculated from the end of the string working backwards
 '[Length]       | Number of characters to remove, 0 = remainder of string from Index
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function Remove( _
              ByVal Index As Long, _
     Optional ByVal Length As Long = 0 _
@@ -1612,14 +1504,14 @@ Public Function Remove( _
 End Function
 
 'Replace : Search for a sub-string and replace it with another
-'=======================================================================================
+'======================================================================================
 'SearchFor      | Text to find within our string
 '[ReplaceWith]  | What to replace the found text with, can be null-string
 '[ReturnCount]  | If provided, your own variable will be set with the number of
 '               | replacements done
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function Replace( _
              ByRef SearchFor As String, _
     Optional ByRef ReplaceWith As String = vbNullString, _
@@ -1659,7 +1551,7 @@ Public Function Replace( _
     Dim LenB_ReplaceWith As Long:   Let LenB_ReplaceWith = LenB(ReplaceWith)
     
 Continue:
-    '-----------------------------------------------------------------------------------
+    '----------------------------------------------------------------------------------
     'Search for the sub-string: _
      (case-sensitivity is handled by the class `CaseSensitive` property)
     Dim ResultPointer As Long
@@ -1679,10 +1571,10 @@ Continue:
      we don't need to move parts of our string about
     If Difference = 0 Then
         'Replace the found string
-        Call api_RtlMoveMemory( _
-            DestinationPointer:=ResultPointer, _
-                 SourcePointer:=StrPtr_ReplaceWith, _
-                        Length:=LenB_ReplaceWith _
+        Call Win32.kernel32.MoveMemory( _
+            OutputPointer:=ResultPointer, _
+            SourcePointer:=StrPtr_ReplaceWith, _
+              LengthBytes:=LenB_ReplaceWith _
         )
     Else
         'Calculate the remainder portion of our string that will be moved
@@ -1701,10 +1593,10 @@ Continue:
         End If
         
         'Shift up or down the remainder portion of our string
-        Call api_RtlMoveMemory( _
-            DestinationPointer:=ResultPointer + LenB_ReplaceWith, _
-                 SourcePointer:=ResultPointer + LenB_SearchFor, _
-                        Length:=Remainder _
+        Call Win32.kernel32.MoveMemory( _
+            OutputPointer:=ResultPointer + LenB_ReplaceWith, _
+            SourcePointer:=ResultPointer + LenB_SearchFor, _
+              LengthBytes:=Remainder _
         )
         'If the replacement string is shorter than the search string, _
          our string will get shorter overall
@@ -1718,10 +1610,10 @@ Continue:
         End If
         
         'Copy the replacement string in
-        Call api_RtlMoveMemory( _
-            DestinationPointer:=ResultPointer, _
-                 SourcePointer:=StrPtr_ReplaceWith, _
-                        Length:=LenB_ReplaceWith _
+        Call Win32.kernel32.MoveMemory( _
+            OutputPointer:=ResultPointer, _
+            SourcePointer:=StrPtr_ReplaceWith, _
+              LengthBytes:=LenB_ReplaceWith _
         )
     End If
     
@@ -1733,17 +1625,17 @@ Continue:
     GoTo Continue
     
 Finish:
-    '-----------------------------------------------------------------------------------
+    '----------------------------------------------------------------------------------
     'Changes to our string will invalidate the CRC
     If ReturnCount <> 0 Then Let CRCValid = 0
 End Function
 
 'Right : Keep only the given right-most number of characters
-'=======================================================================================
+'======================================================================================
 'Length         | Number of characters to keep working backwards from the right
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function Right( _
     ByRef Length As Long _
 ) As bluString
@@ -1770,9 +1662,9 @@ Public Function Right( _
 End Function
 
 ''SplitLines : Split a string into an array of lines (breaking at new lines)
-''======================================================================================
+''=====================================================================================
 ''Returns        | An array of strings
-''======================================================================================
+''=====================================================================================
 'Public Function SplitLines( _
 ') As String()
 '    'A null-string won't split!
@@ -1803,13 +1695,13 @@ End Function
 'End Function
 
 'SplitWords : Split our string into words (separated by white-space)
-'=======================================================================================
+'======================================================================================
 '[QuotedText]   | Keeps quoted text ("...") together as one word
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | An array of strings, each containing a word. If there are no words
 '               | in the string, a zero-based single entry array containing nullstring
 '               | will be returned. When there are results, the array will be 1-based
-'=======================================================================================
+'======================================================================================
 Public Function SplitWords( _
     Optional ByRef QuotedText As Boolean = False _
 ) As String()
@@ -1837,7 +1729,7 @@ Public Function SplitWords( _
             CharTypePointer:=VarPtr(Whitespace(0)) _
     )
     
-    '-----------------------------------------------------------------------------------
+    '----------------------------------------------------------------------------------
     
     Dim i As Long
     Dim WordBegin As Long, WordEnd As Long, WordLength As Long
@@ -1852,7 +1744,7 @@ Public Function SplitWords( _
     For i = 0 To Length0
         'Are we currently processing a word? _
          If not, we will look for the first non-whitespace character
-        '...............................................................................
+        '..............................................................................
         If IsWord = 0 Then
             'Is this a non-whitespace character? (the start of a word)
             If (Whitespace(i) And C1.C1_WHITESPACE) = 0 Then
@@ -1870,7 +1762,7 @@ Public Function SplitWords( _
                 Let IsWord = 1
             End If
             
-        '...............................................................................
+        '..............................................................................
         Else
             'Are we matching quotes?
             If IsQuoted <> 0 Then
@@ -1906,7 +1798,7 @@ Public Function SplitWords( _
     Exit Function
     
 AddWord:
-    '...................................................................................
+    '..................................................................................
     Let IsWord = 0
     
     'Add the word to array
@@ -1915,16 +1807,16 @@ AddWord:
     
     Let WordLength = WordEnd - WordBegin
     Let OutArray(WordCount) = Space$(WordLength)
-    Call api_RtlMoveMemory( _
-        DestinationPointer:=StrPtr(OutArray(WordCount)), _
-             SourcePointer:=VarPtr(Data(WordBegin)), _
-                    Length:=WordLength * 2 _
+    Call Win32.kernel32.MoveMemory( _
+        OutputPointer:=StrPtr(OutArray(WordCount)), _
+        SourcePointer:=VarPtr(Data(WordBegin)), _
+          LengthBytes:=WordLength * 2 _
     )
     Return
 End Function
 
 'Text : Get/Let the contents as native VB strings
-'=======================================================================================
+'======================================================================================
 Public Property Get Text() As String
 Attribute Text.VB_MemberFlags = "200"
     'If ours is a null-string, return a null-string
@@ -1934,10 +1826,10 @@ Attribute Text.VB_MemberFlags = "200"
         'Pad the return String to the right size
         Let Text = Space$(My_Length)
         'Copy our String into the return field
-        Call api_RtlMoveMemory( _
-            DestinationPointer:=StrPtr(Text), _
-                 SourcePointer:=VarPtr(Data(0)), _
-                        Length:=My_LengthB _
+        Call Win32.kernel32.MoveMemory( _
+            OutputPointer:=StrPtr(Text), _
+            SourcePointer:=VarPtr(Data(0)), _
+              LengthBytes:=My_LengthB _
         )
     End If
 End Property
@@ -1945,44 +1837,43 @@ Public Property Let Text( _
     ByRef NewString As String _
 )   'If a null-string is provided then set ours to a null string
     If LenB(NewString) = 0 Then
-        'This will invalidate the CRC too
-        Call Me.Destroy
+        Call my_SetLength(0)
     Else
-        'Completely free our existing string
-        Call Me.Destroy
         'Set the new length of our string; _
          The buffer will be allocated appropriately
         Call my_SetLength(Len(NewString))
         'Copy the VB String data over
-        Call api_RtlMoveMemory( _
-            DestinationPointer:=VarPtr(Data(0)), _
-                 SourcePointer:=StrPtr(NewString), _
-                        Length:=LenB(NewString) _
+        Call Win32.kernel32.MoveMemory( _
+            OutputPointer:=VarPtr(Data(0)), _
+            SourcePointer:=StrPtr(NewString), _
+              LengthBytes:=LenB(NewString) _
         )
     End If
+    'Invalidate the CRC
+    Let CRCValid = 0
 End Property
 
-'Trim : Strip whitespace characters from the beginning and end
-'=======================================================================================
+'TrimSpace : Strip whitespace characters from the beginning and end
+'======================================================================================
 'Returns        | This class object (method chaining)
-'=======================================================================================
-Public Function Trim( _
+'======================================================================================
+Public Function TrimSpace( _
 ) As bluString
     'Allow method chaining
-    Set Trim = Me
+    Set TrimSpace = Me
     'This is just a macro
-    Call TrimLeft
-    Call TrimRight
+    Call TrimSpaceLeft
+    Call TrimSpaceRight
 End Function
 
-'TrimLeft : Strip whitespace characters from the beginning
-'=======================================================================================
+'TrimSpaceLeft : Strip whitespace characters from the beginning
+'======================================================================================
 'Returns        | This class object (method chaining)
-'=======================================================================================
-Public Function TrimLeft( _
+'======================================================================================
+Public Function TrimSpaceLeft( _
 ) As bluString
     'Allow method chaining
-    Set TrimLeft = Me
+    Set TrimSpaceLeft = Me
     'Null string won't trim!
     If My_Length = 0 Then Exit Function
     
@@ -2014,14 +1905,14 @@ Continue:
     Let CRCValid = 0
 End Function
 
-'TrimRight : Strip whitespace characters from the end
-'=======================================================================================
+'TrimSpaceRight : Strip whitespace characters from the end
+'======================================================================================
 'Returns        | This class object (method chaining)
-'=======================================================================================
-Public Function TrimRight( _
+'======================================================================================
+Public Function TrimSpaceRight( _
 ) As bluString
     'Allow method chaining
-    Set TrimRight = Me
+    Set TrimSpaceRight = Me
     'Null string won't trim!
     If My_Length = 0 Then Exit Function
     
@@ -2053,14 +1944,32 @@ Continue:
     Let CRCValid = 0
 End Function
 
+'TrimToNull : Set our string length according to the first null found in the buffer
+'======================================================================================
+'Returns        | This class object (method chaining)
+'======================================================================================
+Public Function TrimToNull( _
+) As bluString
+    'You must make sure that you have set the buffer size big enough when using API _
+     calls (for example `MAX_PATH`) otherwise Windows might overrun the buffer
+    
+    'Allow method chaining
+    Set TrimToNull = Me
+    
+    'We now clip our string to fit the length given by the first Null found
+    Call my_SetLength( _
+        api_lstrlen(VarPtr(Data(0))) _
+    )
+End Function
+
 'Truncate : Line-break our string to a maximum given length, adding ellipsis if needed
-'=======================================================================================
+'======================================================================================
 'MaxLength      | Maximum allowable length of our string. This length is guaranteed,
 '               | as the ellipsis will be placed within this length and not appended
 '[Ellipsis]     | A string to include at the end if our string is clipped short
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function Truncate( _
              ByVal MaxLength As Long, _
     Optional ByRef Ellipsis As String = "…" _
@@ -2069,7 +1978,7 @@ Public Function Truncate( _
     Set Truncate = Me
     
     'Validation:
-    '-----------------------------------------------------------------------------------
+    '----------------------------------------------------------------------------------
     'Truncating to zero will simply return nullstring
     If MaxLength = 0 Then Call Me.Destroy: Exit Function
     'Negative length not allowed
@@ -2079,7 +1988,7 @@ Public Function Truncate( _
      We don't want our ellipsis hanging in space
     'TODO: This duplicates a lot of what we're doing in this method, _
      so we should do this manually here?
-    Call Me.TrimRight
+    Call Me.TrimSpaceRight
     
     'You can't truncate a null-string
     If My_Length = 0 Then Exit Function
@@ -2101,10 +2010,10 @@ Public Function Truncate( _
         'Replace our string with the ellipsis _
          (this also clears the CRC)
         Call my_SetLength(EllipsisLength)
-        Call api_RtlMoveMemory( _
-            DestinationPointer:=VarPtr(Data(0)), _
-                 SourcePointer:=StrPtr(Ellipsis), _
-                        Length:=LenB(Ellipsis) _
+        Call Win32.kernel32.MoveMemory( _
+            OutputPointer:=VarPtr(Data(0)), _
+            SourcePointer:=StrPtr(Ellipsis), _
+              LengthBytes:=LenB(Ellipsis) _
         )
         Exit Function
     End If
@@ -2115,7 +2024,7 @@ Public Function Truncate( _
     Let MaxLength = MaxLength - EllipsisLength
     
     'Look for white-space:
-    '-----------------------------------------------------------------------------------
+    '----------------------------------------------------------------------------------
     
     'In general we want to walk backwards from the truncation point looking for the _
      first space to word-break, however we want to fill the truncated string as much _
@@ -2154,10 +2063,10 @@ Public Function Truncate( _
             'Changes to our string will invalidate the CRC
             Let CRCValid = 0
             'Insert the ellipsis at the end
-            If EllipsisLength <> 0 Then Call api_RtlMoveMemory( _
-                DestinationPointer:=VarPtr(Data(PropsIndex + i)), _
-                     SourcePointer:=StrPtr(Ellipsis), _
-                            Length:=LenB(Ellipsis) _
+            If EllipsisLength <> 0 Then Call Win32.kernel32.MoveMemory( _
+                OutputPointer:=VarPtr(Data(PropsIndex + i)), _
+                SourcePointer:=StrPtr(Ellipsis), _
+                  LengthBytes:=LenB(Ellipsis) _
             )
             Exit Function
         End If
@@ -2166,35 +2075,32 @@ Public Function Truncate( _
     Loop
     
     'Force truncation:
-    '-----------------------------------------------------------------------------------
+    '----------------------------------------------------------------------------------
     'Truncate our string at the given point, including the ellipsis
     Call my_SetLength(MaxLength + EllipsisLength)
     'Changes to our string will invalidate the CRC
     Let CRCValid = 0
     
     'Insert the ellipsis at the end
-    If EllipsisLength <> 0 Then Call api_RtlMoveMemory( _
-        DestinationPointer:=VarPtr(Data(MaxLength)), _
-             SourcePointer:=StrPtr(Ellipsis), _
-                    Length:=LenB(Ellipsis) _
+    If EllipsisLength <> 0 Then Call Win32.kernel32.MoveMemory( _
+        OutputPointer:=VarPtr(Data(MaxLength)), _
+        SourcePointer:=StrPtr(Ellipsis), _
+          LengthBytes:=LenB(Ellipsis) _
     )
 End Function
 
 'UCase : Convert our string to UPPERCASE
-'=======================================================================================
+'======================================================================================
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function UCase() As bluString
     'Allow method chaining
     Set UCase = Me
     'Nullstring won't change!
     If My_Length = 0 Then Exit Function
     
-    'If the Windows version hasn't been determined yet, do so
-    If WindowsVersion = GET_WINDOWS_VERSION Then Call my_GetWindowsVersion
-    
     'Check for Windows Vista and above:
-    If WindowsVersion > 0 Then
+    If blu.sys.WindowsAPILevel = VISTA_OR_HIGHER Then
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
         Call api_LCMapStringEx( _
@@ -2223,12 +2129,12 @@ Public Function UCase() As bluString
 End Function
 
 'Wrap : Append & Prepend our string, e.g. for adding quotes around text
-'=======================================================================================
+'======================================================================================
 'Before         | String to prepend to our string
 '[After]        | String to append to our string. If ommitted, defaults to Before
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
-'=======================================================================================
+'======================================================================================
 Public Function Wrap( _
              ByRef Before As String, _
     Optional ByRef After As String = vbNullString _
@@ -2263,13 +2169,13 @@ Public Function Wrap( _
     If Len_After > 0 Then Call my_UnsafeCopyString(After, Len_Before + OldLength)
 End Function
 
-'/// PRIVATE INTERFACE /////////////////////////////////////////////////////////////////
+'/// PRIVATE INTERFACE ////////////////////////////////////////////////////////////////
 
 'FormatVariant : Convert Variants to Strings, including recursive array walking
-'=======================================================================================
+'======================================================================================
 'AddVar         | Some value of any type, including arrays
 'AddArray       | The array of FormatData you want to put the converted Strings into
-'=======================================================================================
+'======================================================================================
 Private Sub my_FormatVariant( _
     ByRef AddVar As Variant, _
     ByRef AddArray() As bluString_FormatData _
@@ -2289,7 +2195,7 @@ Private Sub my_FormatVariant( _
     Select Case AddVarType
         'We can just use the pointer of an existing String
         Case vbString
-            '...........................................................................
+            '..........................................................................
             Let DataToAdd.Pointer = StrPtr(AddVar)
             Let DataToAdd.ByteCount = LenB(AddVar)
             GoSub AddPointer
@@ -2301,12 +2207,12 @@ Private Sub my_FormatVariant( _
          <serpentine.com/blog/2011/06/29/here-be-dragons>
         Case vbBoolean, vbByte, vbCurrency, vbDate, vbDecimal, _
              vbDouble, vbEmpty, vbError, vbInteger, vbLong, vbSingle
-            '...........................................................................
+            '..........................................................................
             Let DataToAdd.Text = CStr(AddVar)
             GoSub AddString
             
         Case vbObject
-            '...........................................................................
+            '..........................................................................
             'Use the contents of a bluString
             If TypeOf AddVar Is bluString Then
                 Let DataToAdd.Pointer = AddVar.Pointer
@@ -2320,19 +2226,19 @@ Private Sub my_FormatVariant( _
         'Note that `vbArray` is combined with the data type inside the array, _
          including Variant too, i.e. `vbArray + vbVariant`
         Case Is >= vbArray
-            '...........................................................................
+            '..........................................................................
             'Arrays need to be walked, pushing each value as its own parameter
             Let First = LBound(AddVar): Let Last = UBound(AddVar)
             For i = First To Last: Call my_FormatVariant(AddVar(i), AddArray): Next i
             
         Case Else
-            '...........................................................................
+            '..........................................................................
             'All other data types can't be co-erced
             Err.Raise (13)
     End Select
     Exit Sub
     
-    '-----------------------------------------------------------------------------------
+    '----------------------------------------------------------------------------------
 AddPointer:
     Let DataToAdd.Text = vbNullString
     GoTo AddData
@@ -2352,9 +2258,9 @@ AddData:
 End Sub
 
 'SetLength : An internal method to set the string length without repeated validation
-'=======================================================================================
+'======================================================================================
 'NewLength      | What to set our string length to
-'=======================================================================================
+'======================================================================================
 Private Sub my_SetLength( _
     ByRef NewLength As Long _
 )   'NO VALIDATION! INTERNAL USE ONLY!
@@ -2393,6 +2299,8 @@ DefaultBuffer:
         ReDim Preserve Data(0 To My_Buffer) As Integer
         'Ensure it's null-terminated!
         Let Data(My_Buffer) = 0
+        'Note that the memory has been reserved
+        Let Reserved = 1
     End If
     
     'Ensure that our string is null-terminated!
@@ -2400,44 +2308,44 @@ DefaultBuffer:
 End Sub
 
 'UnsafeCopy : Move a portion of our string to another place in our string
-'=======================================================================================
+'======================================================================================
 'IndexFrom      | Position within string (0-based) to begin copying from
 'IndexTo        | As above, but where to copy to
 'Length         | Number of characters (not Bytes) to copy
-'=======================================================================================
+'======================================================================================
 Private Sub my_UnsafeCopy( _
     ByRef IndexFrom As Long, _
     ByRef IndexTo As Long, _
     ByRef Length As Long _
 )   'NO VALIDATION! INTERNAL USE ONLY!
-    Call api_RtlMoveMemory( _
+    Call Win32.kernel32.MoveMemory( _
         VarPtr(Data(IndexTo)), VarPtr(Data(IndexFrom)), Length * 2 _
     )
 End Sub
 
 'UnsafeCopyString : Copies a VB String into our string
-'=======================================================================================
+'======================================================================================
 'Text           | VB String to copy into our string
 'Index          | Position within our string (0-based) to begin copying
-'=======================================================================================
+'======================================================================================
 Private Sub my_UnsafeCopyString( _
     ByRef Text As String, _
     ByRef Index As Long _
 )   'NO VALIDATION! INTERNAL USE ONLY!
     '(This will overwrite anything already in place, so it's assumed you've already _
       handled resizing the string and copying things out)
-    Call api_RtlMoveMemory( _
+    Call Win32.kernel32.MoveMemory( _
         VarPtr(Data(Index)), StrPtr(Text), LenB(Text) _
     )
 End Sub
 
 'ValidateChar : Validates a Unicode character code
-'=======================================================================================
+'======================================================================================
 'Char           | A Unicode character code (0 to 65535) or a negative number
 '               | representing the signed-Integer equivilent of codes 32768 to 65535
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | False for an invalid Char, True for a valid one
-'=======================================================================================
+'======================================================================================
 Private Function my_ValidateChar( _
     ByRef Char As UCS2 _
 ) As Boolean
@@ -2455,11 +2363,11 @@ Private Function my_ValidateChar( _
 End Function
 
 'ValidateIndex : Validates an index for the string
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based)
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | False for an invalid Index, True for a valid one
-'=======================================================================================
+'======================================================================================
 Private Function my_ValidateIndex( _
     ByRef Index As Long _
 ) As Boolean
@@ -2472,12 +2380,12 @@ Private Function my_ValidateIndex( _
 End Function
 
 'ValidateIndexAllowNegative : A negative index gives 'x' number of chars from the end
-'=======================================================================================
+'======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case the
 '               | Index is updated to be from the end of the string working backwards
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | False for an invalid Index, True for a valid one
-'=======================================================================================
+'======================================================================================
 Private Function my_ValidateIndexAllowNegative( _
     ByRef Index As Long _
 ) As Boolean
@@ -2503,13 +2411,13 @@ Private Function my_ValidateIndexAllowNegative( _
 End Function
 
 'ValidateRange : Validate an Index and Length fit within our string
-'=======================================================================================
+'======================================================================================
 'Index          | Position within our string (0-based). Can be negative, in which case
 '               | the Index is calculated from the end of the string working backwards
 'Length         | Length of the string portion, 0 = remainder of string from Index
-'---------------¦-----------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | True if the range is valid (within our string), otherwise False
-'=======================================================================================
+'======================================================================================
 Private Function my_ValidateRange( _
     ByRef Index As Long, _
     ByRef Length As Long _
@@ -2532,22 +2440,3 @@ Private Function my_ValidateRange( _
         End If
     End If
 End Function
-
-'GetWindowsVersion
-'=======================================================================================
-Private Sub my_GetWindowsVersion()
-    'Get the Windows version as Windows Vista and above use alternative APIs for _
-     locale-dependent methods (such as `Equals`)
-    Dim VersionInfo As OSVERSIONINFO
-    Let VersionInfo.SizeOfMe = Len(VersionInfo)
-    'NOTE: If the app is in compatibility mode, this will return the compatible _
-     Windows version, not the actual version. Windows 8.1 and above also cause _
-     this API to always return as Windows 8.0 unless the app opts-in to correct _
-     version info via manifest, but this isn't an issue to bluString as we are _
-     only concerned with testing for Windows Vista+
-    If api_GetVersionEx(VersionInfo) = API_TRUE Then
-        If VersionInfo.MajorVersion > 5 _
-            Then Let WindowsVersion = VISTA_OR_HIGHER _
-            Else Let WindowsVersion = XP_OR_LOWER
-    End If
-End Sub

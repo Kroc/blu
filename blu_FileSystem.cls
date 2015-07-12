@@ -486,10 +486,10 @@ Public Function FileReadText_AsArray( _
 '            'If the upper 2 bytes are 0, then the code point is 16-bits only
 '            If (CodePoint32 \ &H10000) = 0 Then
 '                'Add as-is to our string
-'                Call api_RtlMoveMemory( _
-'                    DestinationPointer:=Data(i), _
-'                         SourcePointer:=VarPtr(CodePoint32), _
-'                                Length:=2 _
+'                Call Win32.MoveMemory( _
+'                    OutputPointer:=Data(i), _
+'                    SourcePointer:=VarPtr(CodePoint32), _
+'                      LengthBytes:=2 _
 '                )
 '                Let i = i + 1
 '

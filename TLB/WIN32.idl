@@ -1,19 +1,37 @@
-[
-        uuid(A6E3802C-CD9B-421b-9C8C-898318446C79)
-]       library WIN32
-{       
-        [dllname("KERNEL32")]
-        module kernel32
-        {
-                [
-                        entry("RtlMoveMemory"),
-                        helpstring("Copy memory from one location to another")
-                ]
-                void MoveMemory(
-                        [in] long OutputPointer, 
-                        [in] long SourcePointer, 
-                        [in] long LengthBytes
-                );
+[       uuid(A6E3802C-CD9B-421b-9C8C-898318446C79)
+,       version(0.1)
+]
+library WIN32
+{
 
-        }
+typedef
+[       uuid(2466DE98-07EE-474f-8F9A-974773E07798)
+,       v1_enum
+,       version(1.0)
+]
+enum    BOOL
+{       BOOL_FALSE = 0
+,       BOOL_TRUE  = 1
+}       BOOL;
+
+//======================================================================================
+
+[       dllname("KERNEL32")
+]
+module  kernel32
+{
+        //Copy raw memory from one place to another
+        //<msdn.microsoft.com/en-us/library/windows/desktop/aa366535(v=vs.85).aspx>
+        [       entry("RtlMoveMemory")
+        ,       helpstring("Copy memory from one location to another")
+        ]
+        void    MoveMemory
+        (
+                [in] long OutputPointer, 
+                [in] long SourcePointer, 
+                [in] long LengthBytes
+        );
+};
+
+
 };

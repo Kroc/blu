@@ -53,11 +53,11 @@ Option Explicit
 
 '/// API //////////////////////////////////////////////////////////////////////////////
 
-'In VB6 True is -1 and False is 0, but in the Win32 API it's 1 for True
-Private Enum BOOL
-    API_TRUE = 1
-    API_FALSE = 0
-End Enum
+''In VB6 True is -1 and False is 0, but in the Win32 API it's 1 for True
+'Private Enum BOOL
+'    API_TRUE = 1
+'    API_FALSE = 0
+'End Enum
 
 'Memory manipulation:
 '--------------------------------------------------------------------------------------
@@ -984,7 +984,7 @@ Public Function Equals( _
         Let Equals = (api_CompareStringOrdinal( _
             String1Pointer:=StrPtr(Text), String1Length:=-1, _
             String2Pointer:=VarPtr(Data(0)), String2Length:=-1, _
-                IgnoreCase:=API_FALSE _
+                IgnoreCase:=BOOL_FALSE _
         ) = CSTR_EQUAL)
     End If
 End Function

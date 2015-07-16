@@ -23,6 +23,8 @@ Option Explicit
 'Last Updated       12-JUL-15
 'Last Update        Rewrote to blindly append to file, rather than keep in memory
 
+'TODO: Validate when the filepath is set
+
 '--------------------------------------------------------------------------------------
 
 'A class designed for maximum-speed logging of text to disk
@@ -55,7 +57,7 @@ Public Property Get FilePath() As String
     Let FilePath = My_FilePath
 End Property
 Public Property Let FilePath(ByRef NewPath As String)
-    Let My_FilePath = FilePath
+    Let My_FilePath = NewPath
 End Property
 
 'LogFormat : Add a line to the log, with marker replacement
@@ -88,7 +90,7 @@ End Sub
 
 'Log : Add a line to the log
 '======================================================================================
-'Text           | A VB String to add to our array
+'[Text]         | A string to append to the log; line-break is added for you
 '======================================================================================
 Public Sub Log( _
     Optional ByRef Text As String = vbNullString _
@@ -104,3 +106,26 @@ Public Sub Log( _
         Close #FileNumber
     End If
 End Sub
+
+'SetFilePath : Define the log file path to output to
+'======================================================================================
+'FilePath       | Log file path, must be absolute
+'---------------¦----------------------------------------------------------------------
+'Returns        | True if successful, False if the path was invalid or unwriteable
+'======================================================================================
+Public Function SetFilePath( _
+    ByRef FilePath As String _
+) As Boolean
+    'Fix the path given in case of relative markers, e.g. "..", "."
+    Let FilePath = blu.FileSystem.PathFix(FilePath)
+    'Is the path incomplete?
+    If Not blu.FileSystem.PathIsAbsolute(FilePath) Then
+        'We cannot support relative paths as the app might change directory during _
+         processing. We return `False` to let the caller know the path is invalid
+        Exit Function
+    End If
+    
+    'Store the given path
+    Let My_FilePath = FilePath
+    Let SetFilePath = True
+End Function

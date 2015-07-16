@@ -25,12 +25,6 @@ Option Explicit
 
 '/// API //////////////////////////////////////////////////////////////////////////////
 
-'In VB6 True is -1 and False is 0, but in the Win32 API it's 1 for True
-Private Enum BOOL
-    API_TRUE = 1
-    API_FALSE = 0
-End Enum
-
 'Locale Mapping (for case conversion and string comparison):
 '--------------------------------------------------------------------------------------
 'This page helped with working out correct methods of using Unicode API calls _
@@ -233,6 +227,9 @@ Public Enum UCS2
 :   TILDE:                      C0_DEL
 End Enum
 
+Private Const STR_SPC As String = " "
+Private Const STR_ELLIPSIS As String = "…"
+
 '/// EVENTS ///////////////////////////////////////////////////////////////////////////
 
 '======================================================================================
@@ -274,5 +271,160 @@ Public Function CompareText( _
                ReservedPointer:=0&, _
                          Param:=0& _
         ) = CSTR_EQUAL)
+    End If
+End Function
+
+'Concatenate : VB6's string concatenation is very slow, this should be faster
+'======================================================================================
+Public Function Concatenate( _
+    ParamArray Strings() As Variant _
+) As String
+    '
+End Function
+
+'FormatText : Fit a piece of text to a fixed length with truncate / align / pad
+'======================================================================================
+'InputText      | The text you want to format
+'OutputLength   | The fixed length of the output text that will be created; e.g. you
+'               | want to format file names in an ASCII table and the length of the
+'               | table cell must always be 32 chars (padded for shorter filenames)
+'[Align]        | Alignment of the text within the given fixed size of output
+'[Ellipsis]     | Input text longer than the fixed output length will be truncated
+'               | using the ellipsis string (i.e. "...") to denote the overflow
+'[FillChar]     | The "background" of the output, e.g. pad with spaces
+'---------------¦----------------------------------------------------------------------
+'Returns        | A new string, of the length specified
+'======================================================================================
+Public Function FormatText( _
+             ByRef InputText As String, _
+             ByRef OutputLength As Long, _
+    Optional ByRef Align As VBRUN.AlignmentConstants = vbLeftJustify, _
+    Optional ByRef Ellipsis As String = STR_ELLIPSIS, _
+    Optional ByRef FillChar As String = STR_SPC _
+) As String
+    'Don't be silly
+    If OutputLength < 0 Then Call Err.Raise(9): Exit Function
+    
+    'Should the input text match the desired output length, nothing needs to be done!
+    If Len(InputText) = OutputLength Then
+        Let FormatText = InputText
+        Exit Function
+    End If
+    
+    Dim OutputLengthBytes As Long
+    Let OutputLengthBytes = OutputLength * 2
+    
+    'Prepate the output buffer (using the TLB-API here is faster than `Space$`!). _
+     The string will currently contain garbage from previously used memory
+    Let FormatText = Win32.CreateUninitializedString(ByVal 0&, OutputLength)
+    
+    'cache a bunch of stuff we're going to need
+    Dim OutputPtr As Long
+    Let OutputPtr = StrPtr(FormatText)
+    
+    Dim EllipsisPtr As Long
+    Let EllipsisPtr = StrPtr(Ellipsis)
+    
+    Dim EllipsisLen As Long
+    Let EllipsisLen = LenB(Ellipsis)
+    
+    Dim SourcePtr As Long
+    Let SourcePtr = StrPtr(InputText)
+    
+    Dim SourceLen As Long
+    Let SourceLen = LenB(InputText)
+    
+    'If the input text is too long it needs to be truncated
+    '----------------------------------------------------------------------------------
+    If SourceLen > OutputLengthBytes Then
+        'Left align, truncate on the right
+        '..............................................................................
+        If Align = vbLeftJustify Then
+            'Write the ellipsis on the right hand side
+            Call Win32.CopyMemoryWithin( _
+                OutputPointer:=OutputPtr + OutputLengthBytes - EllipsisLen, _
+                SourcePointer:=EllipsisPtr, _
+                  LengthBytes:=EllipsisPtr _
+            )
+            'Fill the remainder with the input text
+            Call Win32.CopyMemoryWithin( _
+                OutputPointer:=OutputPtr, _
+                SourcePointer:=SourcePtr, _
+                  LengthBytes:=OutputLengthBytes - EllipsisLen _
+            )
+        
+        'If the output is to be right-aligned, _
+         then the truncation will be on the left
+        '..............................................................................
+        ElseIf Align = vbRightJustify Then
+            'Write the ellipsis on the left hand side
+            Call Win32.CopyMemoryBetween( _
+                  LengthBytes:=EllipsisLen, _
+                OutputPointer:=OutputPtr, _
+                SourcePointer:=EllipsisLen _
+            )
+            'Fill the remainder with the input text (right aligned)
+            Call Win32.CopyMemoryBetween( _
+                  LengthBytes:=OutputLengthBytes - EllipsisLen, _
+                OutputPointer:=(OutputPtr + EllipsisLen), _
+                SourcePointer:=(SourcePtr + SourceLen) _
+                              - OutputLengthBytes - EllipsisLen _
+            )
+        
+        '..............................................................................
+        Else
+            'TODO
+            
+        
+        End If
+    
+    'The input text is shorter than the output length, so we need to align & pad
+    '----------------------------------------------------------------------------------
+    Else
+        'Fill the buffer with the given background character: We use an overlapping _
+         memory copy to walk down the string, copying the character before us forward; _
+         like laying down track from a moving train! My use of this technique is based _
+         upon this post: <stackoverflow.com/a/3213694>. There is very likely no faster _
+         way of doing this in VB6
+        
+        'We prepare the first two characters (32-bits), _
+         as the memory copy will walk one Long at a time
+        Let Win32.MemInteger(OutputPtr) = AscW(FillChar)
+        Let Win32.MemInteger(OutputPtr + 2) = AscW(FillChar)
+        
+        'We do a memory copy within the same buffer (notice we are using our API that _
+         *should* be used for copying between different buffers -- it doesn't check _
+         for overlapped copies); this copies the previous four bytes to the next four _
+         bytes, all the way down the string
+        Call Win32.CopyMemoryBetween( _
+              LengthBytes:=OutputLengthBytes - 4, _
+            OutputPointer:=OutputPtr + 4, _
+            SourcePointer:=OutputPtr _
+        )
+        
+        'Select the text alignment:
+        '..............................................................................
+        If Align = vbLeftJustify Then
+            'Place the text on the left
+            Call Win32.CopyMemoryBetween( _
+                  LengthBytes:=SourceLen, _
+                OutputPointer:=OutputPtr, _
+                SourcePointer:=SourcePtr _
+            )
+            
+        '..............................................................................
+        ElseIf Align = vbRightJustify Then
+            'Place the text on the right
+            Call Win32.CopyMemoryBetween( _
+                  LengthBytes:=SourceLen, _
+                OutputPointer:=OutputPtr + (OutputLengthBytes - SourceLen), _
+                SourcePointer:=SourcePtr _
+            )
+            
+        '..............................................................................
+        Else
+            'TODO
+            
+        End If
     End If
 End Function

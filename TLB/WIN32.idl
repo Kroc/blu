@@ -8,6 +8,7 @@ typedef
 [       uuid(2466DE98-07EE-474f-8F9A-974773E07798)
 ,       v1_enum
 ,       version(1.0)
+,       helpstring("In VB6 True is -1 and False is 0, but in the Win32 API it's 1 for True")
 ]
 enum    BOOL
 {       BOOL_FALSE = 0
@@ -16,22 +17,142 @@ enum    BOOL
 
 //======================================================================================
 
-[       dllname("KERNEL32")
+[       dllname("kernel32")
 ]
 module  kernel32
 {
-        //Copy raw memory from one place to another
-        //<msdn.microsoft.com/en-us/library/windows/desktop/aa366535(v=vs.85).aspx>
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/aa366535(v=vs.85).aspx
         [       entry("RtlMoveMemory")
-        ,       helpstring("Copy memory from one location to another")
+        ,       helpstring("Copy memory from one location to another. Overlapping portions are handled correctly")
         ]
-        void    MoveMemory
+        //------------------------------------------------------------------------------
+        void    CopyMemoryWithin
         (
-                [in] long OutputPointer, 
-                [in] long SourcePointer, 
-                [in] long LengthBytes
+                [in]    long    OutputPointer
+        ,       [in]    long    SourcePointer
+        ,       [in]    long    LengthBytes
         );
 };
 
+//======================================================================================
+
+[       dllname("msvbvm60")
+]
+module  msvbvm60
+{
+        /* an internal-to-VB6 API for copying memory is faster than `RtlMoveMemory` most
+           often used because it does not check for overlapping copies; it is therefore
+           not appropriate for copying portions of one buffer to the same buffer, but
+           it is a faster choice for copying between two different memory buffers
+        
+           a benchmark for this can be found at the URL below, and the "Disassembly"
+           reply at the foot of the page will show you the assembly code involved
+           
+           http://foren.activevb.de/archiv/vb-classic/thread-380533/beitrag-380533/Benchmark-CopyMemory-vs-vbaCopy/
+        */
+        [       entry("__vbaCopyBytes")
+        ]
+        //------------------------------------------------------------------------------
+        void    CopyMemoryBetween
+        (
+                [in]    long    LengthBytes
+        ,       [in]    long    OutputPointer
+        ,       [in]    long    SourcePointer
+        );
+        
+        [       entry("GetMem1")
+        ,       propget
+        ,       helpstring("Sets or returns the Byte value at the specified memory address.")
+	]
+        //------------------------------------------------------------------------------
+	HRESULT MemByte
+        (
+                [in]            int     Address
+        ,       [out, retval]   BYTE   *lpRetVal
+        );
+        [       entry("PutMem1")
+        ,       propput
+	]
+	HRESULT MemByte(
+                [in]            int     Address
+        ,       [in]            BYTE    NewValue
+	);
+        
+        [       entry("GetMem2")
+        ,       propget
+        ,       helpstring("Sets or returns the 16-bit Word integer value at the specified memory address.")
+	]
+        //------------------------------------------------------------------------------
+	HRESULT MemInteger
+        (
+                [in]            int     Address
+        ,       [out, retval]   short  *lpRetVal
+	);
+        [       entry("PutMem2")
+        ,       propput
+	]
+        HRESULT MemInteger
+        (
+                [in]            int     Address
+        ,       [in]            short   NewValue
+	);
+        
+        [       entry("GetMem4")
+        ,       propget
+        ,       helpstring("Sets or returns the 32-bit Long integer value at the specified memory address.")
+	]
+        //------------------------------------------------------------------------------
+	HRESULT MemLong
+        (
+                [in]            int     Address
+        ,       [out, retval]   int    *lpRetVal
+        );
+        
+	[       entry("PutMem4")
+        ,       propput
+	]
+	HRESULT MemLong
+        (
+                [in]            int     Address,
+		[in]            int     NewValue
+	);
+        
+        [       entry("GetMem8")
+        ,       propget
+	]
+        //------------------------------------------------------------------------------
+        HRESULT MemDouble
+        (
+                [in]            int     Address,
+		[out, retval]   double *Value
+        );
+        
+	[       entry("PutMem8")
+        ,       propput
+	]
+	HRESULT MemDouble
+        (
+                [in]            int     Address,
+                [in]            double  NewValue
+	);
+};
+
+//======================================================================================
+
+[       dllname("oleaut32")
+]
+module  oleaut32
+{
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/ms221639(v=vs.85).aspx
+        [       entry("SysAllocStringLen")
+        ,       helpstring("Creates a VB String (`BSTR`) with no initialised contents (VB fills strings with spaces)")
+        ]
+        //------------------------------------------------------------------------------
+        BSTR    CreateUninitializedString
+        (
+                [in]    void*   Null
+        ,       [in]    int     StringLength
+        );
+};
 
 };

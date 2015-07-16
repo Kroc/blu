@@ -33,12 +33,6 @@ Option Explicit
 
 '/// API //////////////////////////////////////////////////////////////////////////////
 
-'In VB6 True is -1 and False is 0, but in the Win32 API it's 1 for True
-Private Enum BOOL
-    API_TRUE = 1
-    API_FALSE = 0
-End Enum
-
 'Some of the more modern WIN32 APIs return 0 for success instead of 1, it varies _
  <msdn.microsoft.com/en-us/library/windows/desktop/aa378137(v=vs.85).aspx>
 Private Enum HRESULT
@@ -282,7 +276,7 @@ Public Function FileFolder( _
 ) As String
     Let APIString.Text = FilePath
     'Now call the Windows API to trim the filename
-    If api_PathRemoveFileSpec(APIString.Pointer) = API_TRUE Then
+    If api_PathRemoveFileSpec(APIString.Pointer) = BOOL_TRUE Then
         'If something was removed, then the new length needs to be set
         Call APIString.TrimToNull
     End If
@@ -323,7 +317,7 @@ Public Function FileReadBinary_AsArray( _
     
     'Get the file size using the Windows API
     Dim FileSize As Currency
-    If api_GetFileSizeEx(FileHandle, FileSize) = API_FALSE Then
+    If api_GetFileSizeEx(FileHandle, FileSize) = BOOL_FALSE Then
         Call api_CloseHandle(FileHandle)
         Stop
         Exit Function
@@ -651,13 +645,10 @@ End Function
 Public Function PathFix( _
     ByRef Path As String _
 ) As String
-    'The Windows API requires an adequate buffer for the result
-    Let PathFix = Space$(MAX_PATH)
-    
     'Call the Windows API. This will write a new null-terminated string
-    If api_PathCanonicalize(StrPtr(PathFix), StrPtr(Path)) = API_TRUE Then
+    If api_PathCanonicalize(APIString.Pointer, StrPtr(Path)) = BOOL_TRUE Then
         'We need to trim the result to he null to know the actual length
-        Let PathFix = Left$(PathFix, InStr(PathFix, vbNullChar) - 1)
+        Let PathFix = APIString.TrimToNull().Text
     Else
         'An error with the API, return null-string
         Let PathFix = vbNullString
@@ -673,9 +664,16 @@ End Function
 Public Function PathIsAbsolute( _
     ByRef Path As String _
 ) As Boolean
-    Let PathIsAbsolute = (api_PathIsRelative(StrPtr(Path)) = API_FALSE)
+    Let PathIsAbsolute = (api_PathIsRelative(StrPtr(Path)) = BOOL_FALSE)
 End Function
 
+'PathChangeExtension : Swap the file extension on a file path with another
+'======================================================================================
+'Path           | The file path. Can be relative
+'NewExtension   | Replacement file extension to use; include the dot (i.e. ".log")
+'---------------¦----------------------------------------------------------------------
+'Returns        | The file path as before, with the file extension replaced
+'======================================================================================
 Public Function PathChangeExtension( _
     ByRef Path As String, _
     ByRef NewExtension As String _
@@ -697,7 +695,7 @@ End Function
 'Returns        |
 '======================================================================================
 Public Function SpecialFolder( _
-    ByVal Folder As CSIDL _
+    ByRef Folder As CSIDL _
 ) As String
     'Return null should this fail
     Let SpecialFolder = vbNullString

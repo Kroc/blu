@@ -25,12 +25,6 @@ Option Explicit
 
 '/// API //////////////////////////////////////////////////////////////////////////////
 
-'In VB6 True is -1 and False is 0, but in the Win32 API it's 1 for True
-Private Enum BOOL
-    API_TRUE = 1
-    API_FALSE = 0
-End Enum
-
 'Windows Version:
 '--------------------------------------------------------------------------------------
 
@@ -84,7 +78,7 @@ Private Sub Class_Initialize()
      this API to always return as Windows 8.0 unless the app opts-in to correct _
      version info via manifest, but this isn't an issue to bluString as we are _
      only concerned with testing for Windows Vista+
-    If api_GetVersionEx(VersionInfo) = API_TRUE Then
+    If api_GetVersionEx(VersionInfo) = BOOL_TRUE Then
         If VersionInfo.MajorVersion > 5 _
             Then Let WindowsAPILevel = VISTA_OR_HIGHER _
             Else Let WindowsAPILevel = XP_OR_LOWER

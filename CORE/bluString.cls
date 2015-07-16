@@ -20,13 +20,10 @@ Option Explicit
 'CLASS :: bluString
 
 'Dependencies       WIN32.tlb, blu > blu_Sys, blu_Strings, blu_FileSystem
-'Last Updated       11-JUL-15
-'Last Update        *   Switched to using the type library for `RtlMoveMemory`
-'                   *   Rename `Trim*` methods to `TrimSpace*`
-'                   *   Added `TrimToNull` method
-'                   *   The `Text` property no longer resets the buffer
-'                       (important when re-using a bluString for API-work)
-'                   *   `Pointer` can now return a valid pointer for an empty string
+'Last Updated       13-JUL-15
+'Last Update        *   Improvements to WIN32 usage
+'                   *   Renamed `ReduceBuffer` to `TrimBuffer`
+'                   *   Our string will be null-terminated when `Clear`ed
 
 'Always get the latest version of this file at <github.com/Kroc/blu>. _
  Feedback can be sent to <kroc@camendesign.com>
@@ -52,28 +49,6 @@ Option Explicit
     Half a million string comparisons per second? No problem
 
 '/// API //////////////////////////////////////////////////////////////////////////////
-
-''In VB6 True is -1 and False is 0, but in the Win32 API it's 1 for True
-'Private Enum BOOL
-'    API_TRUE = 1
-'    API_FALSE = 0
-'End Enum
-
-'Memory manipulation:
-'--------------------------------------------------------------------------------------
-
-'Fill memory with zeroes _
- <msdn.microsoft.com/en-us/library/windows/desktop/aa366920(v=vs.85).aspx>
-Private Declare Sub api_RtlZeroMemory Lib "kernel32" Alias "RtlZeroMemory" ( _
-    ByVal DestinationPointer As Long, _
-    ByVal Length As Long _
-)
-
-'Undocumented VB6 API to write 4-bytes (Long) of memory
-Private Declare Sub api_PutMem4 Lib "msvbvm60" Alias "PutMem4" ( _
-    ByVal DestinationPointer As Long, _
-    ByVal Value As Long _
-)
 
 'Locale Mapping (for case conversion and string comparison):
 '--------------------------------------------------------------------------------------
@@ -380,10 +355,10 @@ Public Function Append( _
     Let CRCValid = 0
     
     'Copy the new string in
-    Call Win32.kernel32.MoveMemory( _
+    Call Win32.CopyMemoryBetween( _
+          LengthBytes:=LenB(Text), _
         OutputPointer:=VarPtr(Data(Start)), _
-        SourcePointer:=StrPtr(Text), _
-          LengthBytes:=LenB(Text) _
+        SourcePointer:=StrPtr(Text) _
     )
 End Function
 
@@ -403,6 +378,7 @@ Public Property Let Buffer( _
     If BufferSize <= 0 Then
         Debug.Print "[bluString] WARNING: Cannot set Buffer to 0 or negative number"
         Exit Property
+        
     'Also you cannot go over the maximum buffer size
     ElseIf BufferSize > BUFFER_MAX Then
         'Raise VB's "Overflow" error
@@ -514,7 +490,7 @@ Public Function CharInsert( _
     Let CRCValid = 0
     
     'Shift the upper portion of our string up
-    Call Win32.kernel32.MoveMemory( _
+    Call Win32.CopyMemoryWithin( _
         OutputPointer:=VarPtr(Data(Index + 1)), _
         SourcePointer:=VarPtr(Data(Index)), _
           LengthBytes:=(My_Length - Index - 1) * 2 _
@@ -800,6 +776,18 @@ Public Function CharRemove( _
     Let CRCValid = 0
 End Function
 
+''CharCodeFromLong : Converts a Long character code to a signed Integer
+''======================================================================================
+''CharCode       |
+''---------------¦----------------------------------------------------------------------
+''Returns        | VB6's typical signed-integer character code (-32'768 to 32'767)
+''======================================================================================
+'Public Function CharCodeFromLong( _
+'    ByRef CharCode As Long _
+') As Integer
+'
+'End Function
+
 'Clear : Go back to an empty string, keeps the buffer size
 '======================================================================================
 'Returns        | This class object (method chaining)
@@ -809,6 +797,8 @@ Public Function Clear() As bluString
     Set Clear = Me
     'Mark the string as being null-length
     Let My_Length = 0: Let My_LengthB = 0
+    'Null terminate the string, should it be used by Windows API in this state
+    Let Data(0) = 0
     'Changes to our string will invalidate the CRC
     Let CRCValid = 0
 End Function
@@ -819,7 +809,7 @@ End Function
 '               | Index is calculated from the end of the string working backwards
 '[Length]       | Number of characters to copy, can be 0 which will imply the
 '               | remainder of the string, from the Index
-'---------------¦---------------------------------------------------------------------
+'---------------¦----------------------------------------------------------------------
 'Returns        | A new bluString instance
 '======================================================================================
 Public Function Clone( _
@@ -837,10 +827,10 @@ Public Function Clone( _
     'Set the destination size
     Let Clone.Length = Length
     'Copy the text across (if there is any)
-    If My_Length > 0 Then Call Win32.kernel32.MoveMemory( _
+    If My_Length > 0 Then Call Win32.CopyMemoryBetween( _
+          LengthBytes:=Length * 2, _
         OutputPointer:=Clone.Pointer(Index), _
-        SourcePointer:=VarPtr(Data(0)), _
-          LengthBytes:=Length * 2 _
+        SourcePointer:=VarPtr(Data(0)) _
     )
 End Function
 
@@ -948,33 +938,26 @@ Public Function Equals( _
     'Are we doing a case-insensitive comparison?
     '..................................................................................
     If My_CaseSensitive = 0 Then
-        'Case sensitivity flags in the API is different for each operating-system
-        Dim Flags As CompareString_Flags
-        
-        'Check for Windows Vista and above:
-        If blu.sys.WindowsAPILevel = VISTA_OR_HIGHER Then
-            'Windows Vista and above have more capable case-comparisons
-            Let Flags = LINGUISTIC_IGNORECASE
+        'Check for Windows XP; this is faster to do because it's a zero comparison
+        If blu.sys.WindowsAPILevel = XP_OR_LOWER Then
+            'Fall back to the XP-compatible API
+            Let Equals = (api_CompareString( _
+                      LocaleID:=api_GetThreadLocale(), _
+                  CompareFlags:=NORM_IGNORECASE, _
+                String1Pointer:=StrPtr(Text), String1Length:=-1, _
+                String2Pointer:=VarPtr(Data(0)), String2Length:=-1 _
+            ) = CSTR_EQUAL)
+        Else
             'NOTE: The use of null on the first parameter causes Windows to use the _
              user's current locale, so we don't need to manually fetch the locale name
             Let Equals = (api_CompareStringEx( _
                  LocaleNamePointer:=0&, _
-                      CompareFlags:=Flags, _
+                      CompareFlags:=LINGUISTIC_IGNORECASE, _
                     String1Pointer:=StrPtr(Text), String1Length:=-1, _
                     String2Pointer:=VarPtr(Data(0)), String2Length:=-1, _
                 VersionInfoPointer:=0&, _
                    ReservedPointer:=0&, _
                              Param:=0& _
-            ) = CSTR_EQUAL)
-        Else
-            'This is the simpler case-comparison supported by XP
-            Let Flags = NORM_IGNORECASE
-            'Fall back to the XP-compatible API
-            Let Equals = (api_CompareString( _
-                      LocaleID:=api_GetThreadLocale(), _
-                  CompareFlags:=Flags, _
-                String1Pointer:=StrPtr(Text), String1Length:=-1, _
-                String2Pointer:=VarPtr(Data(0)), String2Length:=-1 _
             ) = CSTR_EQUAL)
         End If
     
@@ -1065,10 +1048,10 @@ Continue:
      we don't need to move parts of the string about
     If Difference = 0 Then
         'Replace the marker
-        Call Win32.kernel32.MoveMemory( _
+        Call Win32.CopyMemoryBetween( _
+              LengthBytes:=FormatData(Param).ByteCount, _
             OutputPointer:=ResultPointer, _
-            SourcePointer:=FormatData(Param).Pointer, _
-              LengthBytes:=FormatData(Param).ByteCount _
+            SourcePointer:=FormatData(Param).Pointer _
         )
     Else
         'Calculate the remainder portion of our string that will be moved
@@ -1088,7 +1071,7 @@ Continue:
         End If
         
         'Shift up or down the remainder portion of our string
-        Call Win32.kernel32.MoveMemory( _
+        Call Win32.CopyMemoryWithin( _
             OutputPointer:=ResultPointer + FormatData(Param).ByteCount, _
             SourcePointer:=ResultPointer + MarkerLengthB, _
               LengthBytes:=Remainder _
@@ -1105,10 +1088,10 @@ Continue:
         End If
         
         'Copy the replacement string in
-        Call Win32.kernel32.MoveMemory( _
+        Call Win32.CopyMemoryBetween( _
+              LengthBytes:=FormatData(Param).ByteCount, _
             OutputPointer:=ResultPointer, _
-            SourcePointer:=FormatData(Param).Pointer, _
-              LengthBytes:=FormatData(Param).ByteCount _
+            SourcePointer:=FormatData(Param).Pointer _
         )
     End If
     
@@ -1138,10 +1121,10 @@ Public Function GetArray( _
     'Size the return array to fit our string content (not the buffer)
     ReDim ReturnArray(0 To My_Length - 1) As Integer
     'Copy our string into the return array
-    Call Win32.kernel32.MoveMemory( _
+    Call Win32.CopyMemoryBetween( _
+          LengthBytes:=My_LengthB, _
         OutputPointer:=VarPtr(ReturnArray(0)), _
-        SourcePointer:=VarPtr(Data(0)), _
-          LengthBytes:=My_LengthB _
+        SourcePointer:=VarPtr(Data(0)) _
     )
     Let GetArray = ReturnArray
 End Function
@@ -1176,10 +1159,10 @@ Public Function Insert( _
     'Shift the upper portion of our string up to make room for the inserted string
     Call my_UnsafeCopy(Index, Index + Len(Text), My_Length - Index)
     'Insert the new string
-    Call Win32.kernel32.MoveMemory( _
+    Call Win32.CopyMemoryBetween( _
+          LengthBytes:=LenB(Text), _
         OutputPointer:=VarPtr(Data(Index)), _
-        SourcePointer:=StrPtr(Text), _
-          LengthBytes:=LenB(Text) _
+        SourcePointer:=StrPtr(Text) _
     )
 End Function
 
@@ -1215,10 +1198,10 @@ Public Function Join( _
     Let CRCValid = 0
     
     'Copy the new string in
-    Call Win32.kernel32.MoveMemory( _
+    Call Win32.CopyMemoryBetween( _
+          LengthBytes:=bluStringObj.LengthBytes, _
         OutputPointer:=VarPtr(Data(Start)), _
-        SourcePointer:=bluStringObj.Pointer, _
-          LengthBytes:=bluStringObj.LengthBytes _
+        SourcePointer:=bluStringObj.Pointer _
     )
 End Function
 
@@ -1232,8 +1215,18 @@ Public Function LCase() As bluString
     'Nullstring won't change!
     If My_Length = 0 Then Exit Function
     
-    'Check for Windows Vista and above:
-    If blu.sys.WindowsAPILevel = VISTA_OR_HIGHER Then
+    'Check for Windows XP; this is faster to do because it's a zero comparison
+    If blu.sys.WindowsAPILevel = XP_OR_LOWER Then
+        'Use the Windows XP compatible API
+        Call api_LCMapString( _
+                    LocaleID:=api_GetThreadLocale(), _
+                    MapFlags:=LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
+         SourceStringPointer:=VarPtr(Data(0)), _
+          SourceStringLength:=My_LengthB, _
+         ResultStringPointer:=VarPtr(Data(0)), _
+          ResultStringLength:=My_LengthB _
+        )
+    Else
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
         Call api_LCMapStringEx( _
@@ -1244,16 +1237,6 @@ Public Function LCase() As bluString
            ResultStringPointer:=VarPtr(Data(0)), _
             ResultStringLength:=My_LengthB, _
             VersionInfoPointer:=0&, ReservedPointer:=0&, SortHandle:=0& _
-        )
-    Else
-        'Use the Windows XP compatible API
-        Call api_LCMapString( _
-                    LocaleID:=api_GetThreadLocale(), _
-                    MapFlags:=LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
-         SourceStringPointer:=VarPtr(Data(0)), _
-          SourceStringLength:=My_LengthB, _
-         ResultStringPointer:=VarPtr(Data(0)), _
-          ResultStringLength:=My_LengthB _
         )
     End If
     
@@ -1393,10 +1376,10 @@ Public Function Overwrite( _
     If Not my_ValidateRange(Index, Length) Then Err.Raise (9): Exit Function
     
     'Now just copy the new text over the top of our string
-    Call Win32.kernel32.MoveMemory( _
+    Call Win32.CopyMemoryBetween( _
+          LengthBytes:=Length * 2, _
         OutputPointer:=VarPtr(Data(Index)), _
-        SourcePointer:=StrPtr(Text), _
-          LengthBytes:=Length * 2 _
+        SourcePointer:=StrPtr(Text) _
     )
     
     'Changes to our string will invalidate the CRC
@@ -1448,26 +1431,11 @@ Public Function Prepend( _
     'Shift our string up
     Call my_UnsafeCopy(0, Start, My_Length)
     'Copy the new string in
-    Call Win32.kernel32.MoveMemory( _
+    Call Win32.CopyMemoryBetween( _
+          LengthBytes:=LenB(Text), _
         OutputPointer:=VarPtr(Data(0)), _
-        SourcePointer:=StrPtr(Text), _
-          LengthBytes:=LenB(Text) _
+        SourcePointer:=StrPtr(Text) _
     )
-End Function
-
-'ReduceBuffer : Free some memory by reducing the buffer to the string length
-'======================================================================================
-'Returns        | This class object (method chaining)
-'======================================================================================
-Public Function ReduceBuffer() As bluString
-    'Of course you could just use `bluString.Buffer = bluString.Length`, but this is _
-     intended to be more obvious and safer for potential future changes / expansion. _
-     It's strongly advised NOT to expand the string after you've reduced the buffer
-
-    'Allow method chaining
-    Set ReduceBuffer = Me
-    'Reduce the buffer down to the size of the string
-    Let Me.Buffer = My_Length
 End Function
 
 'Remove : Cut some text out of the middle of the existing string
@@ -1571,7 +1539,7 @@ Continue:
      we don't need to move parts of our string about
     If Difference = 0 Then
         'Replace the found string
-        Call Win32.kernel32.MoveMemory( _
+        Call Win32.CopyMemoryBetween( _
             OutputPointer:=ResultPointer, _
             SourcePointer:=StrPtr_ReplaceWith, _
               LengthBytes:=LenB_ReplaceWith _
@@ -1593,7 +1561,7 @@ Continue:
         End If
         
         'Shift up or down the remainder portion of our string
-        Call Win32.kernel32.MoveMemory( _
+        Call Win32.CopyMemoryWithin( _
             OutputPointer:=ResultPointer + LenB_ReplaceWith, _
             SourcePointer:=ResultPointer + LenB_SearchFor, _
               LengthBytes:=Remainder _
@@ -1610,7 +1578,7 @@ Continue:
         End If
         
         'Copy the replacement string in
-        Call Win32.kernel32.MoveMemory( _
+        Call Win32.CopyMemoryBetween( _
             OutputPointer:=ResultPointer, _
             SourcePointer:=StrPtr_ReplaceWith, _
               LengthBytes:=LenB_ReplaceWith _
@@ -1807,7 +1775,7 @@ AddWord:
     
     Let WordLength = WordEnd - WordBegin
     Let OutArray(WordCount) = Space$(WordLength)
-    Call Win32.kernel32.MoveMemory( _
+    Call Win32.CopyMemoryBetween( _
         OutputPointer:=StrPtr(OutArray(WordCount)), _
         SourcePointer:=VarPtr(Data(WordBegin)), _
           LengthBytes:=WordLength * 2 _
@@ -1824,9 +1792,10 @@ Attribute Text.VB_MemberFlags = "200"
         Let Text = vbNullString
     Else
         'Pad the return String to the right size
-        Let Text = Space$(My_Length)
+'        Let Text = Space$(My_Length)
+        Let Text = Win32.CreateUninitializedString(ByVal 0&, My_Length)
         'Copy our String into the return field
-        Call Win32.kernel32.MoveMemory( _
+        Call Win32.CopyMemoryBetween( _
             OutputPointer:=StrPtr(Text), _
             SourcePointer:=VarPtr(Data(0)), _
               LengthBytes:=My_LengthB _
@@ -1843,7 +1812,7 @@ Public Property Let Text( _
          The buffer will be allocated appropriately
         Call my_SetLength(Len(NewString))
         'Copy the VB String data over
-        Call Win32.kernel32.MoveMemory( _
+        Call Win32.CopyMemoryBetween( _
             OutputPointer:=VarPtr(Data(0)), _
             SourcePointer:=StrPtr(NewString), _
               LengthBytes:=LenB(NewString) _
@@ -1852,6 +1821,21 @@ Public Property Let Text( _
     'Invalidate the CRC
     Let CRCValid = 0
 End Property
+
+'TrimBuffer : Free some memory by reducing the buffer to the string length
+'======================================================================================
+'Returns        | This class object (method chaining)
+'======================================================================================
+Public Function TrimBuffer() As bluString
+    'Of course you could just use `bluString.Buffer = bluString.Length`, but this is _
+     intended to be more obvious and safer for potential future changes / expansion. _
+     It's strongly advised NOT to expand the string after you've reduced the buffer
+
+    'Allow method chaining
+    Set TrimBuffer = Me
+    'Reduce the buffer down to the size of the string
+    Let Me.Buffer = My_Length
+End Function
 
 'TrimSpace : Strip whitespace characters from the beginning and end
 '======================================================================================
@@ -2010,7 +1994,7 @@ Public Function Truncate( _
         'Replace our string with the ellipsis _
          (this also clears the CRC)
         Call my_SetLength(EllipsisLength)
-        Call Win32.kernel32.MoveMemory( _
+        Call Win32.CopyMemoryBetween( _
             OutputPointer:=VarPtr(Data(0)), _
             SourcePointer:=StrPtr(Ellipsis), _
               LengthBytes:=LenB(Ellipsis) _
@@ -2063,7 +2047,7 @@ Public Function Truncate( _
             'Changes to our string will invalidate the CRC
             Let CRCValid = 0
             'Insert the ellipsis at the end
-            If EllipsisLength <> 0 Then Call Win32.kernel32.MoveMemory( _
+            If EllipsisLength <> 0 Then Call Win32.CopyMemoryBetween( _
                 OutputPointer:=VarPtr(Data(PropsIndex + i)), _
                 SourcePointer:=StrPtr(Ellipsis), _
                   LengthBytes:=LenB(Ellipsis) _
@@ -2082,7 +2066,7 @@ Public Function Truncate( _
     Let CRCValid = 0
     
     'Insert the ellipsis at the end
-    If EllipsisLength <> 0 Then Call Win32.kernel32.MoveMemory( _
+    If EllipsisLength <> 0 Then Call Win32.CopyMemoryBetween( _
         OutputPointer:=VarPtr(Data(MaxLength)), _
         SourcePointer:=StrPtr(Ellipsis), _
           LengthBytes:=LenB(Ellipsis) _
@@ -2099,8 +2083,18 @@ Public Function UCase() As bluString
     'Nullstring won't change!
     If My_Length = 0 Then Exit Function
     
-    'Check for Windows Vista and above:
-    If blu.sys.WindowsAPILevel = VISTA_OR_HIGHER Then
+    'Check for Windows XP; this is faster to do because it's a zero comparison
+    If blu.sys.WindowsAPILevel = XP_OR_LOWER Then
+        'Use the Windows XP compatible API
+        Call api_LCMapString( _
+                    LocaleID:=api_GetThreadLocale(), _
+                    MapFlags:=LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
+         SourceStringPointer:=VarPtr(Data(0)), _
+          SourceStringLength:=My_LengthB, _
+         ResultStringPointer:=VarPtr(Data(0)), _
+          ResultStringLength:=My_LengthB _
+        )
+    Else
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
         Call api_LCMapStringEx( _
@@ -2111,16 +2105,6 @@ Public Function UCase() As bluString
            ResultStringPointer:=VarPtr(Data(0)), _
             ResultStringLength:=My_LengthB, _
             VersionInfoPointer:=0&, ReservedPointer:=0&, SortHandle:=0& _
-        )
-    Else
-        'Use the Windows XP compatible API
-        Call api_LCMapString( _
-                    LocaleID:=api_GetThreadLocale(), _
-                    MapFlags:=LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
-         SourceStringPointer:=VarPtr(Data(0)), _
-          SourceStringLength:=My_LengthB, _
-         ResultStringPointer:=VarPtr(Data(0)), _
-          ResultStringLength:=My_LengthB _
         )
     End If
     
@@ -2200,11 +2184,10 @@ Private Sub my_FormatVariant( _
             Let DataToAdd.ByteCount = LenB(AddVar)
             GoSub AddPointer
             
-        'These types can be converted to a String
-        'There are APIs for doing String conversion <vbforums.com/showthread.php?736407> _
-         but `CStr` is probably already using this behind the scenes. Also, rolling _
-         your own String conversion is actually super difficult _
-         <serpentine.com/blog/2011/06/29/here-be-dragons>
+        'These types can be converted to a String; there are APIs for doing String _
+         conversion <vbforums.com/showthread.php?736407> but `CStr` is probably _
+         already using this behind the scenes. Also, rolling your own is actually _
+         super difficult: <serpentine.com/blog/2011/06/29/here-be-dragons>
         Case vbBoolean, vbByte, vbCurrency, vbDate, vbDecimal, _
              vbDouble, vbEmpty, vbError, vbInteger, vbLong, vbSingle
             '..........................................................................
@@ -2318,7 +2301,7 @@ Private Sub my_UnsafeCopy( _
     ByRef IndexTo As Long, _
     ByRef Length As Long _
 )   'NO VALIDATION! INTERNAL USE ONLY!
-    Call Win32.kernel32.MoveMemory( _
+    Call Win32.CopyMemoryWithin( _
         VarPtr(Data(IndexTo)), VarPtr(Data(IndexFrom)), Length * 2 _
     )
 End Sub
@@ -2334,8 +2317,8 @@ Private Sub my_UnsafeCopyString( _
 )   'NO VALIDATION! INTERNAL USE ONLY!
     '(This will overwrite anything already in place, so it's assumed you've already _
       handled resizing the string and copying things out)
-    Call Win32.kernel32.MoveMemory( _
-        VarPtr(Data(Index)), StrPtr(Text), LenB(Text) _
+    Call Win32.CopyMemoryBetween( _
+        LenB(Text), VarPtr(Data(Index)), StrPtr(Text) _
     )
 End Sub
 

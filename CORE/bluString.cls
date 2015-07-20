@@ -20,10 +20,9 @@ Option Explicit
 'CLASS :: bluString
 
 'Dependencies       WIN32.tlb, blu > blu_Sys, blu_Strings, blu_FileSystem
-'Last Updated       13-JUL-15
-'Last Update        *   Improvements to WIN32 usage
-'                   *   Renamed `ReduceBuffer` to `TrimBuffer`
-'                   *   Our string will be null-terminated when `Clear`ed
+'Last Updated       20-JUL-15
+'Last Update        *   Removed `GetArray` in preparation of something much better!
+'                   *   Moved `LCMapString...` APIs to TLB
 
 'Always get the latest version of this file at <github.com/Kroc/blu>. _
  Feedback can be sent to <kroc@camendesign.com>
@@ -49,59 +48,6 @@ Option Explicit
     Half a million string comparisons per second? No problem
 
 '/// API //////////////////////////////////////////////////////////////////////////////
-
-'Locale Mapping (for case conversion and string comparison):
-'--------------------------------------------------------------------------------------
-'This page helped with working out correct methods of using Unicode API calls _
- <www.xtremevbtalk.com/showthread.php?t=68956>
-'This page helped with translating the MSDN documentation into VB6; _
- <www.ex-designz.net/apidetail.asp?api_id=383>
-
-'Get the Locale Identifier (LCID) of this app _
- <msdn.microsoft.com/en-us/library/windows/desktop/dd318127(v=vs.85).aspx>
-'This is used for Windows XP support as Vista+ use Locale Name strings
-Private Declare Function api_GetThreadLocale Lib "kernel32" Alias "GetThreadLocale" ( _
-) As Long
-
-'Unicode & Locale-aware case conversion (Windows XP) _
- <msdn.microsoft.com/en-us/library/windows/desktop/dd318700(v=vs.85).aspx>
-Private Declare Function api_LCMapString Lib "kernel32" Alias "LCMapStringW" ( _
-    ByVal LocaleID As Long, _
-    ByVal MapFlags As LCMAP, _
-    ByVal SourceStringPointer As Long, _
-    ByVal SourceStringLength As Long, _
-    ByVal ResultStringPointer As Long, _
-    ByVal ResultStringLength As Long _
-) As Long
-
-'Unicode & Locale-aware case conversion (Windows Vista+) _
- <msdn.microsoft.com/en-us/library/windows/desktop/dd318702(v=vs.85).aspx>
-Private Declare Function api_LCMapStringEx Lib "kernel32" Alias "LCMapStringEx" ( _
-    ByVal LocaleNamePointer As Long, _
-    ByVal MapFlags As LCMAP, _
-    ByVal SourceStringPointer As Long, _
-    ByVal SourceStringLength As Long, _
-    ByVal ResultStringPointer As Long, _
-    ByVal ResultStringLength As Long, _
-    ByVal VersionInfoPointer As Long, _
-    ByVal ReservedPointer As Long, _
-    ByVal SortHandle As Long _
-) As Long
-
-Private Enum LCMAP
-    LCMAP_LINGUISTIC_CASING = &H1000000 'Manage accents &c. in lower/upper casing
-    LCMAP_LOWERCASE = &H100&            'Convert to lower case
-    LCMAP_UPPERCASE = &H200&            'Convert to UPPER CASE
-    LCMAP_SORTKEY = &H400&              'Generate a sort key
-    LCMAP_BYTEREV = &H800&              'Reverse the bytes
-    LCMAP_HIRAGANA = &H100000           'Change Japanese Katakana to Hiragana
-    LCMAP_KATAKANA = &H200000           'Change Japanese Hiragana to Katakana
-    LCMAP_HALFWIDTH = &H400000          'Use standard (half-width) characters
-    LCMAP_FULLWIDTH = &H800000          'Use wide-characters (i.e. Latin in Chinese)
-    'Change traditional Chinese to simplified Chinese and vice-versa
-    LCMAP_SIMPLIFIED_CHINESE = &H2000000
-    LCMAP_TRADITIONAL_CHINESE = &H4000000
-End Enum
 
 'Comparing Strings:
 '--------------------------------------------------------------------------------------
@@ -242,6 +188,7 @@ Private Declare Function api_lstrlen Lib "kernel32" Alias "lstrlenW" ( _
 
 'This is where we'll store our "string" as an array of Unicode (UCS-2) points
 Private Data() As Integer
+
 'The buffer and content-length will be a 1-based count of characters (not bytes); _
  UCS-2 uses two bytes per character
 Private My_Buffer As Long
@@ -286,6 +233,8 @@ End Enum
 'Set to 1 once the memory has been reserved, _
  this will allow us to get the pointer to an empty string (for API usage)
 Private Reserved As Long
+
+'--------------------------------------------------------------------------------------
 
 'The marker used for formatting strings. As a constant here, it saves VB allocating _
  and deallocating a temporary String everytime we mention it
@@ -355,12 +304,53 @@ Public Function Append( _
     Let CRCValid = 0
     
     'Copy the new string in
-    Call Win32.CopyMemoryBetween( _
+    Call Win32.MemoryCopyBetween( _
           LengthBytes:=LenB(Text), _
         OutputPointer:=VarPtr(Data(Start)), _
         SourcePointer:=StrPtr(Text) _
     )
 End Function
+
+'AsLiveArray
+'======================================================================================
+'In order to provide external reference to this array as a whole, we need to _
+ understand how VB stores Arrays. `VarPtr` typically provides the address of a VB _
+ variable in memory. This doesn't work on Arrays due to the way `VarPtr` is declared; _
+ `ArrPtr` is provided by the WIN32 TLB and allows you to get the address of an Array.
+
+'However, the Array you are looking for is another castle; the contents of the _
+ variable's memory address is simply another memory address. If you follow that you _
+ get either "0", for an undefined Array, or *another* address, where the actual Array _
+ structure is located
+
+' +-----------+
+' | Variable  |     Value is a memory address to:
+' +-----------+
+'       |
+'       v
+' +-----------+
+' |  Pointer  |     Value is 0 for an unitialised Array, otherwise
+' +-----------+     the address of which Array this Variable is bound to:
+'       |
+'       v
+' +-----------+
+' | SAFEARRAY |     A SAFEARRAY structure that describes the Array
+' +-----------+
+
+'Why so much indirection? It allows VB to clearly differentiate between Arrays that _
+ are unintialised (have no dimensions or data) and those that are. It also allows _
+ one Variable to change what Array it's pointing at ("Pointer" above); and lastly, _
+ we can have multiple Variables point to the same Array! Should any one Variable _
+ be destroyed only that Variable will be cleared, not the Array's data
+ 
+'Public Function AsLiveArray() As Integer()
+'    Debug.Print ArrPtr(AsLiveArray), MemLong(ArrPtr(AsLiveArray)), ArrPtr(Data), MemLong(ArrPtr(Data))
+'    Let MemLong(ArrPtr(AsLiveArray)) = MemLong(ArrPtr(Data))
+'    Debug.Print ArrPtr(AsLiveArray), MemLong(ArrPtr(AsLiveArray)), ArrPtr(Data), MemLong(ArrPtr(Data))
+'
+'    Let MemLong(MemLong(ArrPtr(AsLiveArray)) + 8) = MemLong(MemLong(ArrPtr(AsLiveArray)) + 8) + 1
+'    Debug.Print "bluString: [Lock] Array.LockCount = " & CStr(MemLong(MemLong(ArrPtr(Data)) + 8))
+'End Function
 
 'Buffer : Number of characters to reserve in memory for the string
 '======================================================================================
@@ -394,6 +384,10 @@ Public Property Let Buffer( _
         'Changes to our string will invalidate the CRC
         Let CRCValid = 0
     End If
+    
+'    If Reserved <> 0 Then
+'        Let MemLong(MemLong(ArrPtr(Data)) + 8) = 0
+'    End If
     
     'Resize the data store. Note that though `My_Buffer` is 1-based we abuse this _
      to provide room for a null-terminator at the end of the string
@@ -490,7 +484,7 @@ Public Function CharInsert( _
     Let CRCValid = 0
     
     'Shift the upper portion of our string up
-    Call Win32.CopyMemoryWithin( _
+    Call Win32.MemoryCopyWithin( _
         OutputPointer:=VarPtr(Data(Index + 1)), _
         SourcePointer:=VarPtr(Data(Index)), _
           LengthBytes:=(My_Length - Index - 1) * 2 _
@@ -796,9 +790,7 @@ Public Function Clear() As bluString
     'Allow method chaining
     Set Clear = Me
     'Mark the string as being null-length
-    Let My_Length = 0: Let My_LengthB = 0
-    'Null terminate the string, should it be used by Windows API in this state
-    Let Data(0) = 0
+    Call my_SetLength(0)
     'Changes to our string will invalidate the CRC
     Let CRCValid = 0
 End Function
@@ -827,7 +819,7 @@ Public Function Clone( _
     'Set the destination size
     Let Clone.Length = Length
     'Copy the text across (if there is any)
-    If My_Length > 0 Then Call Win32.CopyMemoryBetween( _
+    If My_Length > 0 Then Call Win32.MemoryCopyBetween( _
           LengthBytes:=Length * 2, _
         OutputPointer:=Clone.Pointer(Index), _
         SourcePointer:=VarPtr(Data(0)) _
@@ -900,14 +892,19 @@ End Property
 Public Function Destroy() As bluString
     'Allow method chaining
     Set Destroy = Me
+    
     'Nullify the string
     Let My_Length = 0: Let My_LengthB = 0
+    
+'    Debug.Print "bluString: [Destroy ]Array.LockCount = " & CStr(MemLong(MemLong(ArrPtr(Data)) + 8))
+'    Let MemLong(MemLong(ArrPtr(Data)) + 8) = 0
+    
     'Deallocate the memory
     Erase Data
     'Reset the buffer length so that any new content will create a new, _
      appropriately-sized buffer
     Let My_Buffer = 0
-    'Note that no memory is reserved
+    'Note that no memory is reserved; `Pointer` will return 0!
     Let Reserved = 0
     'Changes to our string will invalidate the CRC
     Let CRCValid = 0
@@ -942,7 +939,7 @@ Public Function Equals( _
         If blu.sys.WindowsAPILevel = XP_OR_LOWER Then
             'Fall back to the XP-compatible API
             Let Equals = (api_CompareString( _
-                      LocaleID:=api_GetThreadLocale(), _
+                      LocaleID:=Win32.ThreadLocale, _
                   CompareFlags:=NORM_IGNORECASE, _
                 String1Pointer:=StrPtr(Text), String1Length:=-1, _
                 String2Pointer:=VarPtr(Data(0)), String2Length:=-1 _
@@ -1048,7 +1045,7 @@ Continue:
      we don't need to move parts of the string about
     If Difference = 0 Then
         'Replace the marker
-        Call Win32.CopyMemoryBetween( _
+        Call Win32.MemoryCopyBetween( _
               LengthBytes:=FormatData(Param).ByteCount, _
             OutputPointer:=ResultPointer, _
             SourcePointer:=FormatData(Param).Pointer _
@@ -1071,7 +1068,7 @@ Continue:
         End If
         
         'Shift up or down the remainder portion of our string
-        Call Win32.CopyMemoryWithin( _
+        Call Win32.MemoryCopyWithin( _
             OutputPointer:=ResultPointer + FormatData(Param).ByteCount, _
             SourcePointer:=ResultPointer + MarkerLengthB, _
               LengthBytes:=Remainder _
@@ -1088,7 +1085,7 @@ Continue:
         End If
         
         'Copy the replacement string in
-        Call Win32.CopyMemoryBetween( _
+        Call Win32.MemoryCopyBetween( _
               LengthBytes:=FormatData(Param).ByteCount, _
             OutputPointer:=ResultPointer, _
             SourcePointer:=FormatData(Param).Pointer _
@@ -1106,27 +1103,6 @@ Continue:
 Finish:
     'And clean up
     Erase FormatData
-End Function
-
-'GetArray : Returns an Integer (Unicode) array copy of our string
-'======================================================================================
-'Returns        | An array of Unicode (UCS-2) Integer points
-'======================================================================================
-Public Function GetArray( _
-) As Integer()
-    Dim ReturnArray() As Integer
-    
-    'Null-string won't return anything!
-    If My_Length = 0 Then Exit Function
-    'Size the return array to fit our string content (not the buffer)
-    ReDim ReturnArray(0 To My_Length - 1) As Integer
-    'Copy our string into the return array
-    Call Win32.CopyMemoryBetween( _
-          LengthBytes:=My_LengthB, _
-        OutputPointer:=VarPtr(ReturnArray(0)), _
-        SourcePointer:=VarPtr(Data(0)) _
-    )
-    Let GetArray = ReturnArray
 End Function
 
 'Insert : Insert some text in the middle of the existing string
@@ -1159,7 +1135,7 @@ Public Function Insert( _
     'Shift the upper portion of our string up to make room for the inserted string
     Call my_UnsafeCopy(Index, Index + Len(Text), My_Length - Index)
     'Insert the new string
-    Call Win32.CopyMemoryBetween( _
+    Call Win32.MemoryCopyBetween( _
           LengthBytes:=LenB(Text), _
         OutputPointer:=VarPtr(Data(Index)), _
         SourcePointer:=StrPtr(Text) _
@@ -1198,7 +1174,7 @@ Public Function Join( _
     Let CRCValid = 0
     
     'Copy the new string in
-    Call Win32.CopyMemoryBetween( _
+    Call Win32.MemoryCopyBetween( _
           LengthBytes:=bluStringObj.LengthBytes, _
         OutputPointer:=VarPtr(Data(Start)), _
         SourcePointer:=bluStringObj.Pointer _
@@ -1218,9 +1194,9 @@ Public Function LCase() As bluString
     'Check for Windows XP; this is faster to do because it's a zero comparison
     If blu.sys.WindowsAPILevel = XP_OR_LOWER Then
         'Use the Windows XP compatible API
-        Call api_LCMapString( _
-                    LocaleID:=api_GetThreadLocale(), _
-                    MapFlags:=LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
+        Call Win32.TextConvertCase_NT5( _
+                    LocaleID:=Win32.ThreadLocale, _
+                       Flags:=vbCaseLower Or vbCaseLinguistic, _
          SourceStringPointer:=VarPtr(Data(0)), _
           SourceStringLength:=My_LengthB, _
          ResultStringPointer:=VarPtr(Data(0)), _
@@ -1229,14 +1205,14 @@ Public Function LCase() As bluString
     Else
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
-        Call api_LCMapStringEx( _
+        Call Win32.TextConvertCase_NT6( _
              LocaleNamePointer:=0&, _
-                      MapFlags:=LCMAP_LOWERCASE Or LCMAP_LINGUISTIC_CASING, _
+                          Flags:=vbCaseLower Or vbCaseLinguistic, _
            SourceStringPointer:=VarPtr(Data(0)), _
             SourceStringLength:=My_LengthB, _
            ResultStringPointer:=VarPtr(Data(0)), _
             ResultStringLength:=My_LengthB, _
-            VersionInfoPointer:=0&, ReservedPointer:=0&, SortHandle:=0& _
+          Reserved_VersionInfo:=0&, Reserved:=0&, Reserved_SortHandle:=0& _
         )
     End If
     
@@ -1376,7 +1352,7 @@ Public Function Overwrite( _
     If Not my_ValidateRange(Index, Length) Then Err.Raise (9): Exit Function
     
     'Now just copy the new text over the top of our string
-    Call Win32.CopyMemoryBetween( _
+    Call Win32.MemoryCopyBetween( _
           LengthBytes:=Length * 2, _
         OutputPointer:=VarPtr(Data(Index)), _
         SourcePointer:=StrPtr(Text) _
@@ -1431,7 +1407,7 @@ Public Function Prepend( _
     'Shift our string up
     Call my_UnsafeCopy(0, Start, My_Length)
     'Copy the new string in
-    Call Win32.CopyMemoryBetween( _
+    Call Win32.MemoryCopyBetween( _
           LengthBytes:=LenB(Text), _
         OutputPointer:=VarPtr(Data(0)), _
         SourcePointer:=StrPtr(Text) _
@@ -1539,7 +1515,7 @@ Continue:
      we don't need to move parts of our string about
     If Difference = 0 Then
         'Replace the found string
-        Call Win32.CopyMemoryBetween( _
+        Call Win32.MemoryCopyBetween( _
             OutputPointer:=ResultPointer, _
             SourcePointer:=StrPtr_ReplaceWith, _
               LengthBytes:=LenB_ReplaceWith _
@@ -1561,7 +1537,7 @@ Continue:
         End If
         
         'Shift up or down the remainder portion of our string
-        Call Win32.CopyMemoryWithin( _
+        Call Win32.MemoryCopyWithin( _
             OutputPointer:=ResultPointer + LenB_ReplaceWith, _
             SourcePointer:=ResultPointer + LenB_SearchFor, _
               LengthBytes:=Remainder _
@@ -1578,7 +1554,7 @@ Continue:
         End If
         
         'Copy the replacement string in
-        Call Win32.CopyMemoryBetween( _
+        Call Win32.MemoryCopyBetween( _
             OutputPointer:=ResultPointer, _
             SourcePointer:=StrPtr_ReplaceWith, _
               LengthBytes:=LenB_ReplaceWith _
@@ -1775,7 +1751,7 @@ AddWord:
     
     Let WordLength = WordEnd - WordBegin
     Let OutArray(WordCount) = Space$(WordLength)
-    Call Win32.CopyMemoryBetween( _
+    Call Win32.MemoryCopyBetween( _
         OutputPointer:=StrPtr(OutArray(WordCount)), _
         SourcePointer:=VarPtr(Data(WordBegin)), _
           LengthBytes:=WordLength * 2 _
@@ -1792,10 +1768,9 @@ Attribute Text.VB_MemberFlags = "200"
         Let Text = vbNullString
     Else
         'Pad the return String to the right size
-'        Let Text = Space$(My_Length)
         Let Text = Win32.CreateUninitializedString(ByVal 0&, My_Length)
         'Copy our String into the return field
-        Call Win32.CopyMemoryBetween( _
+        Call Win32.MemoryCopyBetween( _
             OutputPointer:=StrPtr(Text), _
             SourcePointer:=VarPtr(Data(0)), _
               LengthBytes:=My_LengthB _
@@ -1812,7 +1787,7 @@ Public Property Let Text( _
          The buffer will be allocated appropriately
         Call my_SetLength(Len(NewString))
         'Copy the VB String data over
-        Call Win32.CopyMemoryBetween( _
+        Call Win32.MemoryCopyBetween( _
             OutputPointer:=VarPtr(Data(0)), _
             SourcePointer:=StrPtr(NewString), _
               LengthBytes:=LenB(NewString) _
@@ -1994,7 +1969,7 @@ Public Function Truncate( _
         'Replace our string with the ellipsis _
          (this also clears the CRC)
         Call my_SetLength(EllipsisLength)
-        Call Win32.CopyMemoryBetween( _
+        Call Win32.MemoryCopyBetween( _
             OutputPointer:=VarPtr(Data(0)), _
             SourcePointer:=StrPtr(Ellipsis), _
               LengthBytes:=LenB(Ellipsis) _
@@ -2047,7 +2022,7 @@ Public Function Truncate( _
             'Changes to our string will invalidate the CRC
             Let CRCValid = 0
             'Insert the ellipsis at the end
-            If EllipsisLength <> 0 Then Call Win32.CopyMemoryBetween( _
+            If EllipsisLength <> 0 Then Call Win32.MemoryCopyBetween( _
                 OutputPointer:=VarPtr(Data(PropsIndex + i)), _
                 SourcePointer:=StrPtr(Ellipsis), _
                   LengthBytes:=LenB(Ellipsis) _
@@ -2066,7 +2041,7 @@ Public Function Truncate( _
     Let CRCValid = 0
     
     'Insert the ellipsis at the end
-    If EllipsisLength <> 0 Then Call Win32.CopyMemoryBetween( _
+    If EllipsisLength <> 0 Then Call Win32.MemoryCopyBetween( _
         OutputPointer:=VarPtr(Data(MaxLength)), _
         SourcePointer:=StrPtr(Ellipsis), _
           LengthBytes:=LenB(Ellipsis) _
@@ -2086,9 +2061,9 @@ Public Function UCase() As bluString
     'Check for Windows XP; this is faster to do because it's a zero comparison
     If blu.sys.WindowsAPILevel = XP_OR_LOWER Then
         'Use the Windows XP compatible API
-        Call api_LCMapString( _
-                    LocaleID:=api_GetThreadLocale(), _
-                    MapFlags:=LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
+        Call Win32.TextConvertCase_NT5( _
+                    LocaleID:=Win32.ThreadLocale(), _
+                       Flags:=vbCaseUpper Or vbCaseLinguistic, _
          SourceStringPointer:=VarPtr(Data(0)), _
           SourceStringLength:=My_LengthB, _
          ResultStringPointer:=VarPtr(Data(0)), _
@@ -2097,14 +2072,14 @@ Public Function UCase() As bluString
     Else
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
-        Call api_LCMapStringEx( _
+        Call Win32.TextConvertCase_NT6( _
              LocaleNamePointer:=0&, _
-                      MapFlags:=LCMAP_UPPERCASE Or LCMAP_LINGUISTIC_CASING, _
+                         Flags:=vbCaseUpper Or vbCaseLinguistic, _
            SourceStringPointer:=VarPtr(Data(0)), _
             SourceStringLength:=My_LengthB, _
            ResultStringPointer:=VarPtr(Data(0)), _
             ResultStringLength:=My_LengthB, _
-            VersionInfoPointer:=0&, ReservedPointer:=0&, SortHandle:=0& _
+          Reserved_VersionInfo:=0&, Reserved:=0&, Reserved_SortHandle:=0& _
         )
     End If
     
@@ -2301,7 +2276,7 @@ Private Sub my_UnsafeCopy( _
     ByRef IndexTo As Long, _
     ByRef Length As Long _
 )   'NO VALIDATION! INTERNAL USE ONLY!
-    Call Win32.CopyMemoryWithin( _
+    Call Win32.MemoryCopyWithin( _
         VarPtr(Data(IndexTo)), VarPtr(Data(IndexFrom)), Length * 2 _
     )
 End Sub
@@ -2317,7 +2292,7 @@ Private Sub my_UnsafeCopyString( _
 )   'NO VALIDATION! INTERNAL USE ONLY!
     '(This will overwrite anything already in place, so it's assumed you've already _
       handled resizing the string and copying things out)
-    Call Win32.CopyMemoryBetween( _
+    Call Win32.MemoryCopyBetween( _
         LenB(Text), VarPtr(Data(Index)), StrPtr(Text) _
     )
 End Sub

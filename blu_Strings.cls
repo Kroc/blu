@@ -274,13 +274,16 @@ Public Function CompareText( _
     End If
 End Function
 
-'Concatenate : VB6's string concatenation is very slow, this should be faster
-'======================================================================================
-Public Function Concatenate( _
-    ParamArray Strings() As Variant _
-) As String
-    '
-End Function
+''Concatenate : VB6's string concatenation is very slow, this should be faster
+''======================================================================================
+'Public Function Concatenate( _
+'    ParamArray Strings() As Variant _
+') As String
+'    'If nothing is passed, return Null-string
+'    If UBound(Strings) < 0 Then Exit Function
+'
+'
+'End Function
 
 'FormatText : Fit a piece of text to a fixed length with truncate / align / pad
 '======================================================================================
@@ -341,13 +344,13 @@ Public Function FormatText( _
         '..............................................................................
         If Align = vbLeftJustify Then
             'Write the ellipsis on the right hand side
-            Call Win32.CopyMemoryWithin( _
+            Call Win32.MemoryCopyWithin( _
                 OutputPointer:=OutputPtr + OutputLengthBytes - EllipsisLen, _
                 SourcePointer:=EllipsisPtr, _
                   LengthBytes:=EllipsisPtr _
             )
             'Fill the remainder with the input text
-            Call Win32.CopyMemoryWithin( _
+            Call Win32.MemoryCopyWithin( _
                 OutputPointer:=OutputPtr, _
                 SourcePointer:=SourcePtr, _
                   LengthBytes:=OutputLengthBytes - EllipsisLen _
@@ -358,13 +361,13 @@ Public Function FormatText( _
         '..............................................................................
         ElseIf Align = vbRightJustify Then
             'Write the ellipsis on the left hand side
-            Call Win32.CopyMemoryBetween( _
+            Call Win32.MemoryCopyBetween( _
                   LengthBytes:=EllipsisLen, _
                 OutputPointer:=OutputPtr, _
                 SourcePointer:=EllipsisLen _
             )
             'Fill the remainder with the input text (right aligned)
-            Call Win32.CopyMemoryBetween( _
+            Call Win32.MemoryCopyBetween( _
                   LengthBytes:=OutputLengthBytes - EllipsisLen, _
                 OutputPointer:=(OutputPtr + EllipsisLen), _
                 SourcePointer:=(SourcePtr + SourceLen) _
@@ -396,7 +399,7 @@ Public Function FormatText( _
          *should* be used for copying between different buffers -- it doesn't check _
          for overlapped copies); this copies the previous four bytes to the next four _
          bytes, all the way down the string
-        Call Win32.CopyMemoryBetween( _
+        Call Win32.MemoryCopyBetween( _
               LengthBytes:=OutputLengthBytes - 4, _
             OutputPointer:=OutputPtr + 4, _
             SourcePointer:=OutputPtr _
@@ -406,7 +409,7 @@ Public Function FormatText( _
         '..............................................................................
         If Align = vbLeftJustify Then
             'Place the text on the left
-            Call Win32.CopyMemoryBetween( _
+            Call Win32.MemoryCopyBetween( _
                   LengthBytes:=SourceLen, _
                 OutputPointer:=OutputPtr, _
                 SourcePointer:=SourcePtr _
@@ -415,7 +418,7 @@ Public Function FormatText( _
         '..............................................................................
         ElseIf Align = vbRightJustify Then
             'Place the text on the right
-            Call Win32.CopyMemoryBetween( _
+            Call Win32.MemoryCopyBetween( _
                   LengthBytes:=SourceLen, _
                 OutputPointer:=OutputPtr + (OutputLengthBytes - SourceLen), _
                 SourcePointer:=SourcePtr _

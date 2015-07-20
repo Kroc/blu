@@ -352,6 +352,24 @@ Public Function FileReadBinary_AsArray( _
     Call api_CloseHandle(FileHandle)
 End Function
 
+'Public Function FileLoadText( _
+'    ByRef FilePath As String _
+') As String
+'    'Use the Windows API to access the file, _
+'     this avoids VB's slow and unwieldy error handling
+'    Dim FileHandle As Long
+'    Let FileHandle = api_CreateFile( _
+'                    FileNamePointer:=StrPtr(FilePath), _
+'                      DesiredAccess:=GENERIC_READ, _
+'                          ShareMode:=FILE_SHARE_READ, _
+'          SecurityAttributesPointer:=0&, _
+'                CreationDisposition:=OPEN_EXISTING, _
+'                 FlagsAndAttributes:=FILE_FLAGS.FILE_ATTRIBUTE_NORMAL _
+'                                  Or FILE_FLAGS.FILE_FLAG_SEQUENTIAL_SCAN, _
+'                 TemplateFileHandle:=0& _
+'    )
+'End Function
+
 'FileReadText_AsArray : Returns an Integer array of UTF-16 Unicode points for a file
 '======================================================================================
 'FilePath       | Path to the file to read

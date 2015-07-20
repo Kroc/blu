@@ -1,23 +1,110 @@
-[       uuid(A6E3802C-CD9B-421b-9C8C-898318446C79)
-,       version(0.1)
+/*      WIN32 TLB
+        Copyright (c) 2015 Kroc Camen
+        
+        Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+        documentation files (the "Software"), to deal in the Software without restriction, including without limitation
+        the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
+        and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+        *       The above copyright notice and this permission notice shall be included
+                in all copies or substantial portions of the Software.
+
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+        THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+        TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        SOFTWARE.
+        
+        (this is an MIT license)
+*/
+//--------------------------------------------------------------------------------------------------------------------------
+/*      
+        WARNING:
+        
+        If you modify this code at all for your own use then please, for the love of  all that is good, make certain that
+        you change the "UUID" in the library header (below), and on any definition (that has one) that you have modified.
+        (You can use the GUIDGEN or UUID programs in the "Microsoft Visual Studio\Common\Tools" folder)
+        
+        This is so that your modified TLB does not conflict with the original work;
+        let's not create "DLL Hell" on User's machines
+*/
+
+//define our "library", the overall container for our work
+//==========================================================================================================================
+[       //the unique identifier for this library, should it be registered
+        uuid(A6E3802C-CD9B-421b-9C8C-898318446C79)
+,       helpstring("Make WIN32 API access easy! WARNING: Do not use any of these types / enums as function arguments or return types on public functions otherwise you will have to distribute the TLB with your EXEs!")
+        //this version number should be updated with each release
+,       version(0.11)
 ]
 library WIN32
 {
 
 typedef
 [       uuid(2466DE98-07EE-474f-8F9A-974773E07798)
-,       v1_enum
-,       version(1.0)
 ,       helpstring("In VB6 True is -1 and False is 0, but in the Win32 API it's 1 for True")
+,       version(1.0)
+,       v1_enum
 ]
 enum    BOOL
+        //------------------------------------------------------------------------------------------------------------------
 {       BOOL_FALSE = 0
 ,       BOOL_TRUE  = 1
 }       BOOL;
 
-//======================================================================================
+typedef
+[       uuid(40C36793-D6E2-41aa-B247-83B0F708D66A)
+,       helpstring("The internal structure VB uses for Arrays")
+,       version(1.0)
+]
+struct  VBSafeArray1D
+        //------------------------------------------------------------------------------------------------------------------
+{
+        short   Dimensions;
+        short   Features;
+        long    ElementSize;
+        long    LockCount;
+        long    Data;
+        long    ElementCount;
+        long    LBound;
+}       VBSafeArray1D;
+
+typedef
+[       uuid(C3EF1868-6551-469a-B9DF-2A1828FC9133)
+,       version(1.0)
+,       v1_enum
+]
+enum    vbConvertCase
+        //------------------------------------------------------------------------------------------------------------------
+{       [helpstring("Use byte reversal. For example, if the application passes in 0x3450 0x4822, the result is 0x5034 0x2248")]
+        vbCaseReverseBytes      = 0x800
+,       [helpstring("Use Unicode (wide) characters where applicable. This flag and `vbCaseHalfWidth` are mutually exclusive")]
+        vbCaseFullWidth         = 0x800000
+,       [helpstring("Use narrow characters where applicable. This flag and `vbCaseFullWidth` are mutually exclusive")]
+        vbCaseHalfWidth         = 0x400000
+,       [helpstring("Map all katakana characters to hiragana. This flag and `vbCaseKatakana` are mutually exclusive")]
+        vbCaseHiragana          = 0x100000
+,       [helpstring("Map all hiragana characters to katakana. This flag and `vbCaseHirigana` are mutually exclusive")]
+        vbCaseKatakana          = 0x200000
+,       [helpstring("Use linguistic rules for casing, instead of file system rules (default). This flag is valid with `vbCaseLower` or `vbCaseUpper` only")]
+        vbCaseLinguistic        = 0x1000000
+,       [helpstring("For locales and scripts capable of handling uppercase and lowercase, map all characters to lowercase")]
+        vbCaseLower             = 0x100
+,       [helpstring("Map traditional Chinese characters to simplified Chinese characters. This flag and `vbCaseChineseTraditional` are mutually exclusive")]
+        vbCaseChineseSimplified = 0x2000000
+,       [helpstring("Windows 7: Map all characters to title case, in which the first letter of each major word is capitalized")]
+        vbCaseTitle_WIN7        = 0x300
+,       [helpstring("Map simplified Chinese characters to traditional Chinese characters. This flag and `vbCaseChineseSimplified` are mutually exclusive")]
+        vbCaseChineseTraditional= 0x4000000
+,       [helpstring("For locales and scripts capable of handling uppercase and lowercase, map all characters to uppercase")]
+        vbCaseUpper             = 0x200
+}       vbConvertCase;
+
+//==========================================================================================================================
 
 [       dllname("kernel32")
+,       uuid(5DFA4088-B776-4bc8-928A-39AED1B7381B)
+,       version(1.0)
 ]
 module  kernel32
 {
@@ -25,121 +112,183 @@ module  kernel32
         [       entry("RtlMoveMemory")
         ,       helpstring("Copy memory from one location to another. Overlapping portions are handled correctly")
         ]
-        //------------------------------------------------------------------------------
-        void    CopyMemoryWithin
-        (
-                [in]    long    OutputPointer
-        ,       [in]    long    SourcePointer
-        ,       [in]    long    LengthBytes
+        //------------------------------------------------------------------------------------------------------------------
+        void    MemoryCopyWithin
+        (//_____access__________type________name:
+                [in]            int         OutputPointer
+        ,       [in]            int         SourcePointer
+        ,       [in]            int         LengthBytes
+        );
+        
+        //Get the Locale Identifier (LCID) of the current thread
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/dd318127(v=vs.85).aspx
+        //This is used for Windows XP support as Vista+ use Locale Name strings
+        [       entry("GetThreadLocale")
+        ,       helpstring("Gets the Locale ID; Vista+ APIs use Locale Names instead")
+        ,       propget         //a VB read-only property
+        ]
+        //------------------------------------------------------------------------------------------------------------------
+        long    ThreadLocale
+        (//_____access__________type____________name:
+                [out, retval]   int            *LocaleID
+        );
+        
+        
+        //Unicode & Locale-aware case conversion (Windows XP)
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/dd318700(v=vs.85).aspx
+        [       entry("LCMapStringW")
+        ,       helpstring("Unicode-aware case conversion (amongst other things). This version is for Windows 2K/XP and below")
+        ]
+        //------------------------------------------------------------------------------------------------------------------
+        long    TextConvertCase_NT5
+        (//_____access__________type____________name:
+                [in]            long            LocaleID
+        ,       [in]            vbConvertCase   Flags
+        ,       [in]            long            SourceStringPointer
+        ,       [in]            long            SourceStringLength
+                //this isn't `[in, out]` as it's a string and we need to pass a pointer
+        ,       [in]            long            ResultStringPointer
+        ,       [in]            long            ResultStringLength
+        );
+        
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/dd318702%28v=vs.85%29.aspx
+        [       entry("LCMapStringEx")
+        ,       helpstring("Unicode-aware case conversion (amongst other things). This version is for Vista and above; do NOT call this on XP")
+        ]
+        //------------------------------------------------------------------------------------------------------------------
+        long    TextConvertCase_NT6
+        (//_____access__________type____________name:
+                [in]            long            LocaleNamePointer
+        ,       [in]            vbConvertCase   Flags
+        ,       [in]            long            SourceStringPointer
+        ,       [in]            long            SourceStringLength
+                //this isn't `[in, out]` as it's a string and we need to pass a pointer
+        ,       [in]            long            ResultStringPointer
+        ,       [in]            long            ResultStringLength
+        ,       [in, optional]  long            Reserved_VersionInfo
+        ,       [in, optional]  void           *Reserved
+        ,       [in, optional]  long            Reserved_SortHandle
         );
 };
 
-//======================================================================================
+//==========================================================================================================================
 
 [       dllname("msvbvm60")
+,       uuid(46AC9436-76CE-4761-8C7B-C86BEF51CF6C)
+,       version(1.0)      
 ]
 module  msvbvm60
 {
-        /* an internal-to-VB6 API for copying memory is faster than `RtlMoveMemory` most
-           often used because it does not check for overlapping copies; it is therefore
-           not appropriate for copying portions of one buffer to the same buffer, but
-           it is a faster choice for copying between two different memory buffers
+        /*      an internal-to-VB6 API for copying memory is faster than `RtlMoveMemory` most often used because it does
+                not check for overlapping copies; it is therefore not appropriate for copying portions of one buffer to
+                the same buffer, but it is a faster choice for copying between two different memory buffers
         
-           a benchmark for this can be found at the URL below, and the "Disassembly"
-           reply at the foot of the page will show you the assembly code involved
+                a benchmark for this can be found at the URL below, and the "Disassembly" reply at the foot of the page
+                will show you the assembly code involved
            
-           http://foren.activevb.de/archiv/vb-classic/thread-380533/beitrag-380533/Benchmark-CopyMemory-vs-vbaCopy/
+                http://foren.activevb.de/archiv/vb-classic/thread-380533/beitrag-380533/Benchmark-CopyMemory-vs-vbaCopy/
         */
         [       entry("__vbaCopyBytes")
         ]
-        //------------------------------------------------------------------------------
-        void    CopyMemoryBetween
-        (
-                [in]    long    LengthBytes
-        ,       [in]    long    OutputPointer
-        ,       [in]    long    SourcePointer
+        //------------------------------------------------------------------------------------------------------------------
+        void    MemoryCopyBetween
+        (//_____access__________type____________name:
+                [in]            int             LengthBytes
+        ,       [in]            int             OutputPointer
+        ,       [in]            int             SourcePointer
         );
         
         [       entry("GetMem1")
+        ,       helpstring("Sets or returns the Byte value at the specified memory address")
         ,       propget
-        ,       helpstring("Sets or returns the Byte value at the specified memory address.")
-	]
-        //------------------------------------------------------------------------------
-	HRESULT MemByte
-        (
-                [in]            int     Address
-        ,       [out, retval]   BYTE   *lpRetVal
+        ]
+        //------------------------------------------------------------------------------------------------------------------
+        HRESULT MemByte
+        (//_____access__________type____________name:
+                [in]            int             Address
+        ,       [out, retval]   byte           *lpRetVal
         );
         [       entry("PutMem1")
         ,       propput
-	]
-	HRESULT MemByte(
-                [in]            int     Address
-        ,       [in]            BYTE    NewValue
-	);
+        ]
+        HRESULT MemByte
+        (//_____access__________type____________name:
+                [in]            int             Address
+        ,       [in]            byte            NewValue
+        );
         
         [       entry("GetMem2")
+        ,       helpstring("Sets or returns the 16-bit Integer value at the specified memory address")
         ,       propget
-        ,       helpstring("Sets or returns the 16-bit Word integer value at the specified memory address.")
-	]
-        //------------------------------------------------------------------------------
+        ]
+        //------------------------------------------------------------------------------------------------------------------
 	HRESULT MemInteger
-        (
-                [in]            int     Address
-        ,       [out, retval]   short  *lpRetVal
+        (//_____access__________type____________name:
+                [in]            int             Address
+        ,       [out, retval]   short          *lpRetVal
 	);
         [       entry("PutMem2")
         ,       propput
 	]
         HRESULT MemInteger
-        (
-                [in]            int     Address
-        ,       [in]            short   NewValue
+        (//_____access__________type____________name:
+                [in]            int             Address
+        ,       [in]            short           NewValue
 	);
         
         [       entry("GetMem4")
+        ,       helpstring("Sets or returns the 32-bit Long value at the specified memory address")
         ,       propget
-        ,       helpstring("Sets or returns the 32-bit Long integer value at the specified memory address.")
 	]
-        //------------------------------------------------------------------------------
+        //------------------------------------------------------------------------------------------------------------------
 	HRESULT MemLong
-        (
-                [in]            int     Address
-        ,       [out, retval]   int    *lpRetVal
+        (//_____access__________type____________name:
+                [in]            int             Address
+        ,       [out, retval]   long           *lpRetVal
         );
         
 	[       entry("PutMem4")
         ,       propput
 	]
 	HRESULT MemLong
-        (
-                [in]            int     Address,
-		[in]            int     NewValue
+        (//_____access__________type____________name:
+                [in]            int             Address
+	,       [in]            long            NewValue
 	);
         
         [       entry("GetMem8")
         ,       propget
 	]
-        //------------------------------------------------------------------------------
+        //------------------------------------------------------------------------------------------------------------------
         HRESULT MemDouble
-        (
-                [in]            int     Address,
-		[out, retval]   double *Value
+        (//_____access__________type____________name:
+                [in]            int             Address
+	,       [out, retval]   double         *Value
         );
         
 	[       entry("PutMem8")
         ,       propput
 	]
 	HRESULT MemDouble
-        (
-                [in]            int     Address,
-                [in]            double  NewValue
+        (//_____access__________type____________name:
+                [in]            int             Address
+        ,       [in]            double          NewValue
 	);
+        
+        [       entry("VarPtr")
+        ,       helpstring("Allows you to get the pointer to a VB Array (except String arrays)")
+	]
+	long    ArrPtr
+        (//_____access__________type____________name:
+                [in]            SAFEARRAY(void) *Ptr
+        );
 };
 
-//======================================================================================
+//==========================================================================================================================
 
 [       dllname("oleaut32")
+,       uuid(33F2CEA4-2C11-40d3-B88F-AF93FACEDAD3)
+,       version(1.0)
 ]
 module  oleaut32
 {
@@ -147,12 +296,15 @@ module  oleaut32
         [       entry("SysAllocStringLen")
         ,       helpstring("Creates a VB String (`BSTR`) with no initialised contents (VB fills strings with spaces)")
         ]
-        //------------------------------------------------------------------------------
+        //------------------------------------------------------------------------------------------------------------------
         BSTR    CreateUninitializedString
-        (
-                [in]    void*   Null
-        ,       [in]    int     StringLength
+        (//_____access__________type____________name:
+                [in]            void           *Null
+        ,       [in]            int             StringLength
         );
 };
 
+
+
+//END OF LIBRARY
 };

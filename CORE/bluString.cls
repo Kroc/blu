@@ -21,8 +21,8 @@ Option Explicit
 
 'Dependencies       WIN32.tlb, blu > blu_Sys, blu_Strings, blu_FileSystem
 'Last Updated       20-JUL-15
-'Last Update        *   Removed `GetArray` in preparation of something much better!
-'                   *   Moved `LCMapString...` APIs to TLB
+'Last Update        *   Added `CharArrayAccess/Unaccess` methods
+'                   *   Renamed `Data` array to `Chars`
 
 'Always get the latest version of this file at <github.com/Kroc/blu>. _
  Feedback can be sent to <kroc@camendesign.com>
@@ -186,8 +186,51 @@ Private Declare Function api_lstrlen Lib "kernel32" Alias "lstrlenW" ( _
 
 '/// CLASS ////////////////////////////////////////////////////////////////////////////
 
-'This is where we'll store our "string" as an array of Unicode (UCS-2) points
-Private Data() As Integer
+'In order to provide external reference to this array as a whole, we need to _
+ understand how VB stores Arrays. `VarPtr` typically provides the address of a VB _
+ variable in memory. This doesn't work on Arrays due to the way `VarPtr` is declared; _
+ `ArrPtr` is provided by the WIN32 TLB and allows you to get the address of an Array.
+
+'However, the Array you are looking for is another castle; the contents of the _
+ variable's memory address is simply another memory address. If you follow that you _
+ get either "0", for an undefined Array, or *another* address, where the actual Array _
+ structure is located
+
+' +-----------+
+' | Variable  |     Value is a memory address to:
+' +-----------+
+'       |
+'       v
+' +-----------+
+' |  Pointer  |     Value is 0 for an unitialised Array, otherwise
+' +-----------+     the address of which Array this Variable is bound to:
+'       |
+'       v
+' +-----------+
+' | SAFEARRAY |     A SAFEARRAY structure that describes the Array
+' +-----------+
+
+'Why so much indirection? It allows VB to clearly differentiate between Arrays that _
+ are unintialised (have no dimensions or data) and those that are. It also allows _
+ one Variable to change what Array it's pointing at ("Pointer" above); and lastly, _
+ we can have multiple Variables point to the same Array! Should any one Variable _
+ be destroyed only that Variable will be cleared, not the Array's data
+
+'By manipulating an unitialised Array ("Pointer"=0), we can return an Array from _
+ a function that points to our internal string data array, allowing external access _
+ to our data, without copying it. However, we need to prevent the user from redimming _
+ the array or erasing it entirely (making it uninitalised)
+
+'To do that we add a lock to our array; allowing read/write access to the data, but _
+ preventing the user from redimming it. When the external reference goes out of scope, _
+ that variable will be cleared, but the lock on our data will prevent it being cleared _
+ too! VB will not clear this lock for us, so we need to do this manually via a _
+ method that breaks the array reference previously given
+
+'--------------------------------------------------------------------------------------
+
+'This is where we store our "string" as an array of Unicode (UCS-2) points
+Private Chars() As Integer
 
 'The buffer and content-length will be a 1-based count of characters (not bytes); _
  UCS-2 uses two bytes per character
@@ -306,51 +349,10 @@ Public Function Append( _
     'Copy the new string in
     Call Win32.MemoryCopyBetween( _
           LengthBytes:=LenB(Text), _
-        OutputPointer:=VarPtr(Data(Start)), _
+        OutputPointer:=VarPtr(Chars(Start)), _
         SourcePointer:=StrPtr(Text) _
     )
 End Function
-
-'AsLiveArray
-'======================================================================================
-'In order to provide external reference to this array as a whole, we need to _
- understand how VB stores Arrays. `VarPtr` typically provides the address of a VB _
- variable in memory. This doesn't work on Arrays due to the way `VarPtr` is declared; _
- `ArrPtr` is provided by the WIN32 TLB and allows you to get the address of an Array.
-
-'However, the Array you are looking for is another castle; the contents of the _
- variable's memory address is simply another memory address. If you follow that you _
- get either "0", for an undefined Array, or *another* address, where the actual Array _
- structure is located
-
-' +-----------+
-' | Variable  |     Value is a memory address to:
-' +-----------+
-'       |
-'       v
-' +-----------+
-' |  Pointer  |     Value is 0 for an unitialised Array, otherwise
-' +-----------+     the address of which Array this Variable is bound to:
-'       |
-'       v
-' +-----------+
-' | SAFEARRAY |     A SAFEARRAY structure that describes the Array
-' +-----------+
-
-'Why so much indirection? It allows VB to clearly differentiate between Arrays that _
- are unintialised (have no dimensions or data) and those that are. It also allows _
- one Variable to change what Array it's pointing at ("Pointer" above); and lastly, _
- we can have multiple Variables point to the same Array! Should any one Variable _
- be destroyed only that Variable will be cleared, not the Array's data
- 
-'Public Function AsLiveArray() As Integer()
-'    Debug.Print ArrPtr(AsLiveArray), MemLong(ArrPtr(AsLiveArray)), ArrPtr(Data), MemLong(ArrPtr(Data))
-'    Let MemLong(ArrPtr(AsLiveArray)) = MemLong(ArrPtr(Data))
-'    Debug.Print ArrPtr(AsLiveArray), MemLong(ArrPtr(AsLiveArray)), ArrPtr(Data), MemLong(ArrPtr(Data))
-'
-'    Let MemLong(MemLong(ArrPtr(AsLiveArray)) + 8) = MemLong(MemLong(ArrPtr(AsLiveArray)) + 8) + 1
-'    Debug.Print "bluString: [Lock] Array.LockCount = " & CStr(MemLong(MemLong(ArrPtr(Data)) + 8))
-'End Function
 
 'Buffer : Number of characters to reserve in memory for the string
 '======================================================================================
@@ -385,15 +387,13 @@ Public Property Let Buffer( _
         Let CRCValid = 0
     End If
     
-'    If Reserved <> 0 Then
-'        Let MemLong(MemLong(ArrPtr(Data)) + 8) = 0
-'    End If
-    
     'Resize the data store. Note that though `My_Buffer` is 1-based we abuse this _
      to provide room for a null-terminator at the end of the string
-    ReDim Preserve Data(0 To My_Buffer) As Integer
+    'If `CharArrayAccess` has been used the array will be locked and this will fail; _
+     the user must release the lock with `CharArrayUnaccess`
+    ReDim Preserve Chars(0 To My_Buffer) As Integer
     'Ensure it's null-terminated!
-    Let Data(My_Buffer) = 0
+    Let Chars(My_Buffer) = 0
     'Note that the memory has been reserved
     Let Reserved = 1
 End Property
@@ -427,11 +427,11 @@ Public Property Get Char( _
         'The negative position cannot be more than the length of our string
         If Abs(Index) > My_Length Then Err.Raise (9): Exit Property
         'Calculate the new position from the end of our string
-        Let Char = (Data(My_Length + Index) And &HFFFF&)
+        Let Char = (Chars(My_Length + Index) And &HFFFF&)
     Else
         'Return the character value in question _
          The user can use `And &HFF&` to get ASCII
-        Let Char = (Data(Index) And &HFFFF&)
+        Let Char = (Chars(Index) And &HFFFF&)
     End If
 End Property
 Public Property Let Char( _
@@ -448,12 +448,53 @@ Public Property Let Char( _
     'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
      we convert them to their signed equivilent to stuff them into two bytes
     If Char >= 32768 _
-        Then Let Data(Index) = (Char And &HFFFF&) - 65536 _
-        Else Let Data(Index) = (Char And &HFFFF&)
+        Then Let Chars(Index) = (Char And &HFFFF&) - 65536 _
+        Else Let Chars(Index) = (Char And &HFFFF&)
     
     'Changes to our string will invalidate the CRC
     Let CRCValid = 0
 End Property
+
+'CharArrayAccess : Provide an array of the character codes in our string
+'======================================================================================
+'Returns        | An Integer array diretly referencing our internal string storage.
+'               | The array given is locked (cannot be redimmed) and must be unlocked
+'               | (call `CharArrayUnaccess`) before this class can be destroyed
+'======================================================================================
+Public Function CharArrayAccess( _
+) As Integer()
+    'Set the return array to share the same data as our string's character array _
+     (VB cannot return an `Any()` array so this API call is type-specific)
+    Let CharArrayAccess = Win32.ArrayRef_Integer(Chars)
+    
+    'Increase the lock count of the array so that the user cannot redim it. _
+     This lock will have to be manually removed before the class can be destroyed
+    Call Win32.ArrayLockAdd(Win32.ArrPtr(Chars))
+End Function
+
+'CharArrayUnaccess :
+'======================================================================================
+'CharArray()    | The array previously handed out by `CharArrayAccess`; it will be set
+'               | to an uninitalised state and our string will be unlocked
+'======================================================================================
+Public Sub CharArrayUnaccess( _
+    ByRef CharArray() As Integer _
+)
+    'Is this our array? (Don't let the user unlock any old array!)
+    If Win32.ArrPtr(CharArray) <> Win32.ArrPtr(Chars) Then
+        'ERROR: "Invalid Procedure Call or Argument"
+        Call Err.Raise(5, , "bluString.CharArrayUnaccess: The array passed is not the same as was retrieved from `CharArrayAccess`")
+        Exit Sub
+    End If
+    
+    'Remove one from the lock count. If the user has been doing weird things with _
+     the array they've been given, it might have some locks remaining
+    Call Win32.ArrayLockRemove(Win32.ArrPtr(Chars))
+    
+    'Detach the array variable from its array structure (`SAFEARRAY`). _
+     The passed array will become uninitialised
+    Let MemLong(Win32.VarPtr_Array(Chars)) = 0
+End Sub
 
 'CharInsert : Inserts a single Unicode character code
 '======================================================================================
@@ -485,16 +526,16 @@ Public Function CharInsert( _
     
     'Shift the upper portion of our string up
     Call Win32.MemoryCopyWithin( _
-        OutputPointer:=VarPtr(Data(Index + 1)), _
-        SourcePointer:=VarPtr(Data(Index)), _
+        OutputPointer:=VarPtr(Chars(Index + 1)), _
+        SourcePointer:=VarPtr(Chars(Index)), _
           LengthBytes:=(My_Length - Index - 1) * 2 _
     )
     
     'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
          we convert them to their signed equivilent to stuff them into two bytes
     If Char >= 32768 _
-        Then Let Data(Index) = (Char And &HFFFF&) - 65536 _
-        Else Let Data(Index) = (Char And &HFFFF&)
+        Then Let Chars(Index) = (Char And &HFFFF&) - 65536 _
+        Else Let Chars(Index) = (Char And &HFFFF&)
 End Function
 
 'CharIsAlpha : Returns true if the character at the index is a letter
@@ -520,8 +561,8 @@ Public Property Get CharIsAlpha( _
          a negative Index will work backwards from the end of the string
         If Not my_ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Property
         'Is the character code within A-Z? (upper and lower case)
-        If Data(Index) >= 97 And Data(Index) <= 122 Then Let CharIsAlpha = True: Exit Property
-        If Data(Index) >= 65 And Data(Index) <= 90 Then Let CharIsAlpha = True
+        If Chars(Index) >= 97 And Chars(Index) <= 122 Then Let CharIsAlpha = True: Exit Property
+        If Chars(Index) >= 65 And Chars(Index) <= 90 Then Let CharIsAlpha = True
     End If
 End Property
 
@@ -548,10 +589,10 @@ Public Property Get CharIsAlphaNumeric( _
          a negative Index will work backwards from the end of the string
         If Not my_ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Property
         'Is the character code within A-Z? (upper and lower case)
-        If Data(Index) >= 97 And Data(Index) <= 122 Then Let CharIsAlphaNumeric = True: Exit Property
-        If Data(Index) >= 65 And Data(Index) <= 90 Then Let CharIsAlphaNumeric = True: Exit Property
+        If Chars(Index) >= 97 And Chars(Index) <= 122 Then Let CharIsAlphaNumeric = True: Exit Property
+        If Chars(Index) >= 65 And Chars(Index) <= 90 Then Let CharIsAlphaNumeric = True: Exit Property
         'Is the character code within 0-9?
-        If Data(Index) >= 48 And Data(Index) <= 57 Then Let CharIsAlphaNumeric = True
+        If Chars(Index) >= 48 And Chars(Index) <= 57 Then Let CharIsAlphaNumeric = True
     End If
 End Property
 
@@ -589,7 +630,7 @@ Public Property Get CharIsNumeric( _
         Let CharIsNumeric = (Me.CharProperties(Index) And C1_DIGIT) <> 0
     Else
         'Is the character code within 0-9?
-        If Data(Index) >= 48 And Data(Index) <= 57 Then Let CharIsNumeric = True
+        If Chars(Index) >= 48 And Chars(Index) <= 57 Then Let CharIsNumeric = True
     End If
 End Property
 
@@ -668,7 +709,7 @@ Public Property Get CharProperties( _
     'Use the API to fill the return value with the character properties
     Call api_GetStringType( _
                    InfoType:=CT_CTYPE1, _
-        SourceStringPointer:=VarPtr(Data(Index)), _
+        SourceStringPointer:=VarPtr(Chars(Index)), _
          SourceStringLength:=1, _
             CharTypePointer:=VarPtr(CharProperties) _
     )
@@ -683,7 +724,7 @@ Public Function CharPull() As UCS2
     If My_Length = 0 Then Exit Function
     'Return the character value in question _
      The user can use `And &HFF&` to get ASCII
-    Let CharPull = (Data(My_Length - 1) And &HFFFF&)
+    Let CharPull = (Chars(My_Length - 1) And &HFFFF&)
     'Reduce the size of the string
     Call my_SetLength(My_Length - 1)
     'Changes to our string will invalidate the CRC
@@ -715,8 +756,8 @@ Public Function CharPush( _
     'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
          we convert them to their signed equivilent to stuff them into two bytes
     If Char >= 32768 _
-        Then Let Data(My_Length - 1) = (Char And &HFFFF&) - 65536 _
-        Else Let Data(My_Length - 1) = (Char And &HFFFF&)
+        Then Let Chars(My_Length - 1) = (Char And &HFFFF&) - 65536 _
+        Else Let Chars(My_Length - 1) = (Char And &HFFFF&)
 End Function
 
 'CharPushInt : Appends a character code to the end of our string with less validation
@@ -738,7 +779,7 @@ Public Function CharPushInt( _
     Let CRCValid = 0
     
     'Set the character code of the last character
-    Let Data(My_Length - 1) = Char
+    Let Chars(My_Length - 1) = Char
 End Function
 
 'CharRemove : Removes a single character from the string and returns its code
@@ -756,7 +797,7 @@ Public Function CharRemove( _
     If Not my_ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
     
     'Return the character value
-    Let CharRemove = Data(Index)
+    Let CharRemove = Chars(Index)
     
     'If removing just the last character, we won't need to shift the data down
     If Index < (My_Length - 1) Then
@@ -822,7 +863,7 @@ Public Function Clone( _
     If My_Length > 0 Then Call Win32.MemoryCopyBetween( _
           LengthBytes:=Length * 2, _
         OutputPointer:=Clone.Pointer(Index), _
-        SourcePointer:=VarPtr(Data(0)) _
+        SourcePointer:=VarPtr(Chars(0)) _
     )
 End Function
 
@@ -868,11 +909,11 @@ Public Property Get CRC() As Long
         For i = 0 To My_Length - 1
             'Our string is stored as Integers, so we need to do the lower and _
              upper bytes separately
-            Let Value = (My_CRC And &HFF) Xor (Data(i) And &HFF)
+            Let Value = (My_CRC And &HFF) Xor (Chars(i) And &HFF)
             Let My_CRC = ((My_CRC And &HFFFFFF00) \ &H100) And 16777215
             Let My_CRC = My_CRC Xor CRCTable(Value)
             'And the upper byte:
-            Let Value = (My_CRC And &HFF) Xor ((Data(i) And &HFF00&) \ &H100)
+            Let Value = (My_CRC And &HFF) Xor ((Chars(i) And &HFF00&) \ &H100)
             Let My_CRC = ((My_CRC And &HFFFFFF00) \ &H100) And 16777215
             Let My_CRC = My_CRC Xor CRCTable(Value)
         Next
@@ -896,11 +937,8 @@ Public Function Destroy() As bluString
     'Nullify the string
     Let My_Length = 0: Let My_LengthB = 0
     
-'    Debug.Print "bluString: [Destroy ]Array.LockCount = " & CStr(MemLong(MemLong(ArrPtr(Data)) + 8))
-'    Let MemLong(MemLong(ArrPtr(Data)) + 8) = 0
-    
     'Deallocate the memory
-    Erase Data
+    Erase Chars
     'Reset the buffer length so that any new content will create a new, _
      appropriately-sized buffer
     Let My_Buffer = 0
@@ -942,7 +980,7 @@ Public Function Equals( _
                       LocaleID:=Win32.ThreadLocale, _
                   CompareFlags:=NORM_IGNORECASE, _
                 String1Pointer:=StrPtr(Text), String1Length:=-1, _
-                String2Pointer:=VarPtr(Data(0)), String2Length:=-1 _
+                String2Pointer:=VarPtr(Chars(0)), String2Length:=-1 _
             ) = CSTR_EQUAL)
         Else
             'NOTE: The use of null on the first parameter causes Windows to use the _
@@ -951,7 +989,7 @@ Public Function Equals( _
                  LocaleNamePointer:=0&, _
                       CompareFlags:=LINGUISTIC_IGNORECASE, _
                     String1Pointer:=StrPtr(Text), String1Length:=-1, _
-                    String2Pointer:=VarPtr(Data(0)), String2Length:=-1, _
+                    String2Pointer:=VarPtr(Chars(0)), String2Length:=-1, _
                 VersionInfoPointer:=0&, _
                    ReservedPointer:=0&, _
                              Param:=0& _
@@ -963,7 +1001,7 @@ Public Function Equals( _
     Else
         Let Equals = (api_CompareStringOrdinal( _
             String1Pointer:=StrPtr(Text), String1Length:=-1, _
-            String2Pointer:=VarPtr(Data(0)), String2Length:=-1, _
+            String2Pointer:=VarPtr(Chars(0)), String2Length:=-1, _
                 IgnoreCase:=BOOL_FALSE _
         ) = CSTR_EQUAL)
     End If
@@ -1137,7 +1175,7 @@ Public Function Insert( _
     'Insert the new string
     Call Win32.MemoryCopyBetween( _
           LengthBytes:=LenB(Text), _
-        OutputPointer:=VarPtr(Data(Index)), _
+        OutputPointer:=VarPtr(Chars(Index)), _
         SourcePointer:=StrPtr(Text) _
     )
 End Function
@@ -1176,7 +1214,7 @@ Public Function Join( _
     'Copy the new string in
     Call Win32.MemoryCopyBetween( _
           LengthBytes:=bluStringObj.LengthBytes, _
-        OutputPointer:=VarPtr(Data(Start)), _
+        OutputPointer:=VarPtr(Chars(Start)), _
         SourcePointer:=bluStringObj.Pointer _
     )
 End Function
@@ -1197,9 +1235,9 @@ Public Function LCase() As bluString
         Call Win32.TextConvertCase_NT5( _
                     LocaleID:=Win32.ThreadLocale, _
                        Flags:=vbCaseLower Or vbCaseLinguistic, _
-         SourceStringPointer:=VarPtr(Data(0)), _
+         SourceStringPointer:=VarPtr(Chars(0)), _
           SourceStringLength:=My_LengthB, _
-         ResultStringPointer:=VarPtr(Data(0)), _
+         ResultStringPointer:=VarPtr(Chars(0)), _
           ResultStringLength:=My_LengthB _
         )
     Else
@@ -1208,9 +1246,9 @@ Public Function LCase() As bluString
         Call Win32.TextConvertCase_NT6( _
              LocaleNamePointer:=0&, _
                           Flags:=vbCaseLower Or vbCaseLinguistic, _
-           SourceStringPointer:=VarPtr(Data(0)), _
+           SourceStringPointer:=VarPtr(Chars(0)), _
             SourceStringLength:=My_LengthB, _
-           ResultStringPointer:=VarPtr(Data(0)), _
+           ResultStringPointer:=VarPtr(Chars(0)), _
             ResultStringLength:=My_LengthB, _
           Reserved_VersionInfo:=0&, Reserved:=0&, Reserved_SortHandle:=0& _
         )
@@ -1250,7 +1288,7 @@ Public Function Left( _
         Let Me.Length = Length
         'Fill the new space with the character
         Dim i As Long
-        For i = OldLength To My_Length - 1: Let Data(i) = FillChar: Next i
+        For i = OldLength To My_Length - 1: Let Chars(i) = FillChar: Next i
     
     'If the position is negative, work out 'x' number of characters before the end of _
      our string. That is, -1 will be the second to last character
@@ -1354,7 +1392,7 @@ Public Function Overwrite( _
     'Now just copy the new text over the top of our string
     Call Win32.MemoryCopyBetween( _
           LengthBytes:=Length * 2, _
-        OutputPointer:=VarPtr(Data(Index)), _
+        OutputPointer:=VarPtr(Chars(Index)), _
         SourcePointer:=StrPtr(Text) _
     )
     
@@ -1378,7 +1416,7 @@ Public Property Get Pointer( _
     'If the buffer hasn't been reserved yet, return a null-pointer
     If Reserved = 0 _
         Then Let Pointer = 0 _
-        Else Let Pointer = VarPtr(Data(Index))
+        Else Let Pointer = VarPtr(Chars(Index))
 End Property
 
 'Prepend : Add our string to the end of the one provided
@@ -1409,7 +1447,7 @@ Public Function Prepend( _
     'Copy the new string in
     Call Win32.MemoryCopyBetween( _
           LengthBytes:=LenB(Text), _
-        OutputPointer:=VarPtr(Data(0)), _
+        OutputPointer:=VarPtr(Chars(0)), _
         SourcePointer:=StrPtr(Text) _
     )
 End Function
@@ -1486,7 +1524,7 @@ Public Function Replace( _
      the character index from the pointer to be able to continue where we left off _
      -- replacements could contain the search term, leading to an infinite loop!
     Dim StartPointer As Long
-    Let StartPointer = VarPtr(Data(0))
+    Let StartPointer = VarPtr(Chars(0))
     
     'Some caches before we start looping
     Dim StrPtr_SearchFor As Long:   Let StrPtr_SearchFor = StrPtr(SearchFor)
@@ -1509,7 +1547,7 @@ Continue:
     'From the result pointer, calculate the byte offset index in our string _
      (the pointer may become invalid after string replacement!)
     Dim IndexB As Long
-    Let IndexB = ResultPointer - VarPtr(Data(0))
+    Let IndexB = ResultPointer - VarPtr(Chars(0))
     
     'If both the search string and the replacement are the same length, _
      we don't need to move parts of our string about
@@ -1532,7 +1570,7 @@ Continue:
         If Difference > 0 Then
             Call my_SetLength(My_Length + Difference)
             'Get the potentially new string pointer
-            Let StartPointer = VarPtr(Data(0))
+            Let StartPointer = VarPtr(Chars(0))
             Let ResultPointer = StartPointer + IndexB
         End If
         
@@ -1549,7 +1587,7 @@ Continue:
         If Difference < 0 Then
             Call my_SetLength(My_Length + Difference)
             'Get the potentially new string pointer
-            Let StartPointer = VarPtr(Data(0))
+            Let StartPointer = VarPtr(Chars(0))
             Let ResultPointer = StartPointer + IndexB
         End If
         
@@ -1668,7 +1706,7 @@ Public Function SplitWords( _
      into a bit-pattern of its Unicode properties (see the `C1` enum)
     Call api_GetStringType( _
                    InfoType:=CT_CTYPE1, _
-        SourceStringPointer:=VarPtr(Data(0)), _
+        SourceStringPointer:=VarPtr(Chars(0)), _
          SourceStringLength:=My_Length, _
             CharTypePointer:=VarPtr(Whitespace(0)) _
     )
@@ -1695,7 +1733,7 @@ Public Function SplitWords( _
                 'Are we matching quotes?
                 If QuotedText <> 0 Then
                     'Is this a quote?
-                    If Data(i) = UCS2.QUOTATION_MARK Then
+                    If Chars(i) = UCS2.QUOTATION_MARK Then
                         Let IsQuoted = 1
                     End If
                 End If
@@ -1710,7 +1748,7 @@ Public Function SplitWords( _
         Else
             'Are we matching quotes?
             If IsQuoted <> 0 Then
-                If Data(i) = UCS2.QUOTATION_MARK Then
+                If Chars(i) = UCS2.QUOTATION_MARK Then
                     Let IsQuoted = 0
                     Let WordEnd = i + 1
                     GoSub AddWord
@@ -1753,7 +1791,7 @@ AddWord:
     Let OutArray(WordCount) = Space$(WordLength)
     Call Win32.MemoryCopyBetween( _
         OutputPointer:=StrPtr(OutArray(WordCount)), _
-        SourcePointer:=VarPtr(Data(WordBegin)), _
+        SourcePointer:=VarPtr(Chars(WordBegin)), _
           LengthBytes:=WordLength * 2 _
     )
     Return
@@ -1772,7 +1810,7 @@ Attribute Text.VB_MemberFlags = "200"
         'Copy our String into the return field
         Call Win32.MemoryCopyBetween( _
             OutputPointer:=StrPtr(Text), _
-            SourcePointer:=VarPtr(Data(0)), _
+            SourcePointer:=VarPtr(Chars(0)), _
               LengthBytes:=My_LengthB _
         )
     End If
@@ -1788,7 +1826,7 @@ Public Property Let Text( _
         Call my_SetLength(Len(NewString))
         'Copy the VB String data over
         Call Win32.MemoryCopyBetween( _
-            OutputPointer:=VarPtr(Data(0)), _
+            OutputPointer:=VarPtr(Chars(0)), _
             SourcePointer:=StrPtr(NewString), _
               LengthBytes:=LenB(NewString) _
         )
@@ -1917,7 +1955,7 @@ Public Function TrimToNull( _
     
     'We now clip our string to fit the length given by the first Null found
     Call my_SetLength( _
-        api_lstrlen(VarPtr(Data(0))) _
+        api_lstrlen(VarPtr(Chars(0))) _
     )
 End Function
 
@@ -1970,7 +2008,7 @@ Public Function Truncate( _
          (this also clears the CRC)
         Call my_SetLength(EllipsisLength)
         Call Win32.MemoryCopyBetween( _
-            OutputPointer:=VarPtr(Data(0)), _
+            OutputPointer:=VarPtr(Chars(0)), _
             SourcePointer:=StrPtr(Ellipsis), _
               LengthBytes:=LenB(Ellipsis) _
         )
@@ -2004,7 +2042,7 @@ Public Function Truncate( _
     Dim CharProps(0 To 14) As Integer
     Call api_GetStringType( _
                    InfoType:=CT_CTYPE1, _
-        SourceStringPointer:=VarPtr(Data(PropsIndex)), _
+        SourceStringPointer:=VarPtr(Chars(PropsIndex)), _
          SourceStringLength:=PropsLength, _
             CharTypePointer:=VarPtr(CharProps(0)) _
     )
@@ -2023,7 +2061,7 @@ Public Function Truncate( _
             Let CRCValid = 0
             'Insert the ellipsis at the end
             If EllipsisLength <> 0 Then Call Win32.MemoryCopyBetween( _
-                OutputPointer:=VarPtr(Data(PropsIndex + i)), _
+                OutputPointer:=VarPtr(Chars(PropsIndex + i)), _
                 SourcePointer:=StrPtr(Ellipsis), _
                   LengthBytes:=LenB(Ellipsis) _
             )
@@ -2042,7 +2080,7 @@ Public Function Truncate( _
     
     'Insert the ellipsis at the end
     If EllipsisLength <> 0 Then Call Win32.MemoryCopyBetween( _
-        OutputPointer:=VarPtr(Data(MaxLength)), _
+        OutputPointer:=VarPtr(Chars(MaxLength)), _
         SourcePointer:=StrPtr(Ellipsis), _
           LengthBytes:=LenB(Ellipsis) _
     )
@@ -2064,9 +2102,9 @@ Public Function UCase() As bluString
         Call Win32.TextConvertCase_NT5( _
                     LocaleID:=Win32.ThreadLocale(), _
                        Flags:=vbCaseUpper Or vbCaseLinguistic, _
-         SourceStringPointer:=VarPtr(Data(0)), _
+         SourceStringPointer:=VarPtr(Chars(0)), _
           SourceStringLength:=My_LengthB, _
-         ResultStringPointer:=VarPtr(Data(0)), _
+         ResultStringPointer:=VarPtr(Chars(0)), _
           ResultStringLength:=My_LengthB _
         )
     Else
@@ -2075,9 +2113,9 @@ Public Function UCase() As bluString
         Call Win32.TextConvertCase_NT6( _
              LocaleNamePointer:=0&, _
                          Flags:=vbCaseUpper Or vbCaseLinguistic, _
-           SourceStringPointer:=VarPtr(Data(0)), _
+           SourceStringPointer:=VarPtr(Chars(0)), _
             SourceStringLength:=My_LengthB, _
-           ResultStringPointer:=VarPtr(Data(0)), _
+           ResultStringPointer:=VarPtr(Chars(0)), _
             ResultStringLength:=My_LengthB, _
           Reserved_VersionInfo:=0&, Reserved:=0&, Reserved_SortHandle:=0& _
         )
@@ -2254,15 +2292,15 @@ DefaultBuffer:
         
         'Resize the data store. Note that though `My_Buffer` is 1-based we abuse this _
          to provide room for a null-terminator at the end of the string
-        ReDim Preserve Data(0 To My_Buffer) As Integer
+        ReDim Preserve Chars(0 To My_Buffer) As Integer
         'Ensure it's null-terminated!
-        Let Data(My_Buffer) = 0
+        Let Chars(My_Buffer) = 0
         'Note that the memory has been reserved
         Let Reserved = 1
     End If
     
     'Ensure that our string is null-terminated!
-    Let Data(My_Length) = 0
+    Let Chars(My_Length) = 0
 End Sub
 
 'UnsafeCopy : Move a portion of our string to another place in our string
@@ -2277,7 +2315,7 @@ Private Sub my_UnsafeCopy( _
     ByRef Length As Long _
 )   'NO VALIDATION! INTERNAL USE ONLY!
     Call Win32.MemoryCopyWithin( _
-        VarPtr(Data(IndexTo)), VarPtr(Data(IndexFrom)), Length * 2 _
+        VarPtr(Chars(IndexTo)), VarPtr(Chars(IndexFrom)), Length * 2 _
     )
 End Sub
 
@@ -2293,7 +2331,7 @@ Private Sub my_UnsafeCopyString( _
     '(This will overwrite anything already in place, so it's assumed you've already _
       handled resizing the string and copying things out)
     Call Win32.MemoryCopyBetween( _
-        LenB(Text), VarPtr(Data(Index)), StrPtr(Text) _
+        LenB(Text), VarPtr(Chars(Index)), StrPtr(Text) _
     )
 End Sub
 

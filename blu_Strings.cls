@@ -20,63 +20,10 @@ Option Explicit
 'CLASS :: blu_Strings
 
 'Dependencies       blu > blu_Sys
-'Last Updated       12-JUL-15
-'Last Update        Initial version - INCOMPLETE
+'Last Updated       20-JUL-15
+'Last Update        *   Updating `LCMapString...` API use to TLB implementation
 
 '/// API //////////////////////////////////////////////////////////////////////////////
-
-'Locale Mapping (for case conversion and string comparison):
-'--------------------------------------------------------------------------------------
-'This page helped with working out correct methods of using Unicode API calls _
- <www.xtremevbtalk.com/showthread.php?t=68956>
-'This page helped with translating the MSDN documentation into VB6; _
- <www.ex-designz.net/apidetail.asp?api_id=383>
-
-'Get the Locale Identifier (LCID) of this app _
- <msdn.microsoft.com/en-us/library/windows/desktop/dd318127(v=vs.85).aspx>
-'This is used for Windows XP support as Vista+ use Locale Name strings
-Private Declare Function api_GetThreadLocale Lib "kernel32" Alias "GetThreadLocale" ( _
-) As Long
-
-'Unicode & Locale-aware case conversion (Windows XP) _
- <msdn.microsoft.com/en-us/library/windows/desktop/dd318700(v=vs.85).aspx>
-Private Declare Function api_LCMapString Lib "kernel32" Alias "LCMapStringW" ( _
-    ByVal LocaleID As Long, _
-    ByVal MapFlags As LCMAP, _
-    ByVal SourceStringPointer As Long, _
-    ByVal SourceStringLength As Long, _
-    ByVal ResultStringPointer As Long, _
-    ByVal ResultStringLength As Long _
-) As Long
-
-'Unicode & Locale-aware case conversion (Windows Vista+) _
- <msdn.microsoft.com/en-us/library/windows/desktop/dd318702(v=vs.85).aspx>
-Private Declare Function api_LCMapStringEx Lib "kernel32" Alias "LCMapStringEx" ( _
-    ByVal LocaleNamePointer As Long, _
-    ByVal MapFlags As LCMAP, _
-    ByVal SourceStringPointer As Long, _
-    ByVal SourceStringLength As Long, _
-    ByVal ResultStringPointer As Long, _
-    ByVal ResultStringLength As Long, _
-    ByVal VersionInfoPointer As Long, _
-    ByVal ReservedPointer As Long, _
-    ByVal SortHandle As Long _
-) As Long
-
-Private Enum LCMAP
-    LCMAP_LINGUISTIC_CASING = &H1000000 'Manage accents &c. in lower/upper casing
-    LCMAP_LOWERCASE = &H100&            'Convert to lower case
-    LCMAP_UPPERCASE = &H200&            'Convert to UPPER CASE
-    LCMAP_SORTKEY = &H400&              'Generate a sort key
-    LCMAP_BYTEREV = &H800&              'Reverse the bytes
-    LCMAP_HIRAGANA = &H100000           'Change Japanese Katakana to Hiragana
-    LCMAP_KATAKANA = &H200000           'Change Japanese Hiragana to Katakana
-    LCMAP_HALFWIDTH = &H400000          'Use standard (half-width) characters
-    LCMAP_FULLWIDTH = &H800000          'Use wide-characters (i.e. Latin in Chinese)
-    'Change traditional Chinese to simplified Chinese and vice-versa
-    LCMAP_SIMPLIFIED_CHINESE = &H2000000
-    LCMAP_TRADITIONAL_CHINESE = &H4000000
-End Enum
 
 'Comparing Strings:
 '--------------------------------------------------------------------------------------
@@ -254,7 +201,7 @@ Public Function CompareText( _
     If blu.sys.WindowsAPILevel = XP_OR_LOWER Then
         'Fall back to the XP-compatible API
         Let CompareText = (api_CompareString( _
-                  LocaleID:=api_GetThreadLocale(), _
+                  LocaleID:=Win32.ThreadLocale, _
               CompareFlags:=NORM_IGNORECASE, _
             String1Pointer:=StrPtr(String1), String1Length:=-1, _
             String2Pointer:=StrPtr(String2), String2Length:=-1 _

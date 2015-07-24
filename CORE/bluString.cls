@@ -19,10 +19,8 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluString
 
-'Dependencies       WIN32.tlb, blu > blu_Sys, blu_Strings, blu_FileSystem
-'Last Updated       20-JUL-15
-'Last Update        *   Added `CharArrayAccess/Unaccess` methods
-'                   *   Renamed `Data` array to `Chars`
+'Last Updated       24-JUL-15
+'Last Update
 
 'Always get the latest version of this file at <github.com/Kroc/blu>. _
  Feedback can be sent to <kroc@camendesign.com>
@@ -48,73 +46,6 @@ Option Explicit
     Half a million string comparisons per second? No problem
 
 '/// API //////////////////////////////////////////////////////////////////////////////
-
-'Comparing Strings:
-'--------------------------------------------------------------------------------------
-
-'Binary string comparison (case-sensitive) _
- <msdn.microsoft.com/en-us/library/windows/desktop/dd317762(v=vs.85).aspx>
-Private Declare Function api_CompareStringOrdinal Lib "kernel32" Alias "CompareStringOrdinalW" ( _
-    ByVal String1Pointer As Long, _
-    ByVal String1Length As Long, _
-    ByVal String2Pointer As Long, _
-    ByVal String2Length As Long, _
-    ByVal IgnoreCase As BOOL _
-) As CSTR_
-
-'Unicode & Locale-aware string comparison (Windows XP) _
- <msdn.microsoft.com/en-us/library/windows/desktop/dd317759(v=vs.85).aspx>
-Private Declare Function api_CompareString Lib "kernel32" Alias "CompareStringW" ( _
-    ByVal LocaleID As Long, _
-    ByVal CompareFlags As CompareString_Flags, _
-    ByVal String1Pointer As Long, _
-    ByVal String1Length As Long, _
-    ByVal String2Pointer As Long, _
-    ByVal String2Length As Long _
-) As CSTR_
-
-'Unicode & Locale-aware string comparison (Windows Vista+) _
- <msdn.microsoft.com/en-us/library/windows/desktop/dd317761(v=vs.85).aspx>
-Private Declare Function api_CompareStringEx Lib "kernel32" Alias "CompareStringEx" ( _
-    ByVal LocaleNamePointer As Long, _
-    ByVal CompareFlags As CompareString_Flags, _
-    ByVal String1Pointer As Long, _
-    ByVal String1Length As Long, _
-    ByVal String2Pointer As Long, _
-    ByVal String2Length As Long, _
-    ByVal VersionInfoPointer As Long, _
-    ByVal ReservedPointer As Long, _
-    ByVal Param As Long _
-) As CSTR_
-
-Private Enum CompareString_Flags
-    'Ignore case, as linguistically appropriate
-    LINGUISTIC_IGNORECASE = &H10&
-    'Ignore nonspacing characters, as linguistically appropriate
-    LINGUISTIC_IGNOREDIACRITIC = &H20&
-    'Legacy ignore case -- less accurate than LINGUISTIC_IGNORECASE
-    NORM_IGNORECASE = &H1&
-    'Treat equivilent Japanese Hiragana and Katakana as the same
-    NORM_IGNOREKANATYPE = &H10000
-    'Legacy version of `LINGUISTIC_IGNOREDIACRITIC`
-    NORM_IGNORENONSPACE = &H2&
-    'Ignore symbols and punctuation
-    NORM_IGNORESYMBOLS = &H4&
-    'Ignore the difference between half-width and full-width characters
-    NORM_IGNOREWIDTH = &H20000
-    'Use linguistic rules for casing, instead of file system rules (default)
-    NORM_LINGUISTIC_CASING = &H8000000
-    'Treat punctuation the same as symbols
-    SORT_STRINGSORT = &H1000
-End Enum
-
-'Comparison API return values; _
- You can subtract 2 from these to get C-style values
-Private Enum CSTR_
-    CSTR_LESS_THAN = 1
-    CSTR_EQUAL = 2
-    CSTR_GREATER_THAN = 3
-End Enum
 
 'Unicode character properties:
 '--------------------------------------------------------------------------------------
@@ -802,7 +733,11 @@ Public Function CharRemove( _
     'If removing just the last character, we won't need to shift the data down
     If Index < (My_Length - 1) Then
         'Shift the remainder of the string down a character
-        Call my_UnsafeCopy(Index + 1, Index, My_Length - Index - 1)
+        Call Win32.MemoryCopyWithin( _
+            OutputPointer:=VarPtr(Chars(Index)), _
+            SourcePointer:=VarPtr(Chars(Index + 1)), _
+              LengthBytes:=(My_Length - Index - 1) * 2 _
+        )
     End If
     
     'Reduce the overal length of the string by one
@@ -976,34 +911,31 @@ Public Function Equals( _
         'Check for Windows XP; this is faster to do because it's a zero comparison
         If blu.sys.WindowsAPILevel = XP_OR_LOWER Then
             'Fall back to the XP-compatible API
-            Let Equals = (api_CompareString( _
+            Let Equals = (Win32.StringCompare_NT5( _
                       LocaleID:=Win32.ThreadLocale, _
-                  CompareFlags:=NORM_IGNORECASE, _
+                  CompareFlags:=w32IgnoreCase, _
                 String1Pointer:=StrPtr(Text), String1Length:=-1, _
                 String2Pointer:=VarPtr(Chars(0)), String2Length:=-1 _
-            ) = CSTR_EQUAL)
+            ) = Win32.StringCompareResult.w32Equal)
         Else
             'NOTE: The use of null on the first parameter causes Windows to use the _
              user's current locale, so we don't need to manually fetch the locale name
-            Let Equals = (api_CompareStringEx( _
+            Let Equals = (Win32.StringCompare_NT6( _
                  LocaleNamePointer:=0&, _
-                      CompareFlags:=LINGUISTIC_IGNORECASE, _
+                      CompareFlags:=w32IgnoreCaseLinguistic, _
                     String1Pointer:=StrPtr(Text), String1Length:=-1, _
-                    String2Pointer:=VarPtr(Chars(0)), String2Length:=-1, _
-                VersionInfoPointer:=0&, _
-                   ReservedPointer:=0&, _
-                             Param:=0& _
-            ) = CSTR_EQUAL)
+                    String2Pointer:=VarPtr(Chars(0)), String2Length:=-1 _
+                 ) = Win32.StringCompareResult.w32Equal)
         End If
     
     'Case-sensitive (binary) comparison
     '..................................................................................
     Else
-        Let Equals = (api_CompareStringOrdinal( _
+        Let Equals = (Win32.StringCompareBinary( _
             String1Pointer:=StrPtr(Text), String1Length:=-1, _
             String2Pointer:=VarPtr(Chars(0)), String2Length:=-1, _
                 IgnoreCase:=BOOL_FALSE _
-        ) = CSTR_EQUAL)
+        ) = Win32.StringCompareResult.w32Equal)
     End If
 End Function
 
@@ -1171,7 +1103,11 @@ Public Function Insert( _
     Let CRCValid = 0
     
     'Shift the upper portion of our string up to make room for the inserted string
-    Call my_UnsafeCopy(Index, Index + Len(Text), My_Length - Index)
+    Call Win32.MemoryCopyWithin( _
+        OutputPointer:=VarPtr(Chars(Index + Len(Text))), _
+        SourcePointer:=VarPtr(Chars(Index)), _
+          LengthBytes:=(My_Length - Index) * 2 _
+    )
     'Insert the new string
     Call Win32.MemoryCopyBetween( _
           LengthBytes:=LenB(Text), _
@@ -1232,9 +1168,9 @@ Public Function LCase() As bluString
     'Check for Windows XP; this is faster to do because it's a zero comparison
     If blu.sys.WindowsAPILevel = XP_OR_LOWER Then
         'Use the Windows XP compatible API
-        Call Win32.TextConvertCase_NT5( _
+        Call Win32.StringConvertCase_NT5( _
                     LocaleID:=Win32.ThreadLocale, _
-                       Flags:=vbCaseLower Or vbCaseLinguistic, _
+                       Flags:=w32CaseLower Or w32CaseLinguistic, _
          SourceStringPointer:=VarPtr(Chars(0)), _
           SourceStringLength:=My_LengthB, _
          ResultStringPointer:=VarPtr(Chars(0)), _
@@ -1243,9 +1179,9 @@ Public Function LCase() As bluString
     Else
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
-        Call Win32.TextConvertCase_NT6( _
+        Call Win32.StringConvertCase_NT6( _
              LocaleNamePointer:=0&, _
-                          Flags:=vbCaseLower Or vbCaseLinguistic, _
+                          Flags:=w32CaseLower Or w32CaseLinguistic, _
            SourceStringPointer:=VarPtr(Chars(0)), _
             SourceStringLength:=My_LengthB, _
            ResultStringPointer:=VarPtr(Chars(0)), _
@@ -1806,7 +1742,7 @@ Attribute Text.VB_MemberFlags = "200"
         Let Text = vbNullString
     Else
         'Pad the return String to the right size
-        Let Text = Win32.CreateUninitializedString(ByVal 0&, My_Length)
+        Let Text = Win32.StringCreateUninitialized(ByVal 0&, My_Length)
         'Copy our String into the return field
         Call Win32.MemoryCopyBetween( _
             OutputPointer:=StrPtr(Text), _
@@ -2099,9 +2035,9 @@ Public Function UCase() As bluString
     'Check for Windows XP; this is faster to do because it's a zero comparison
     If blu.sys.WindowsAPILevel = XP_OR_LOWER Then
         'Use the Windows XP compatible API
-        Call Win32.TextConvertCase_NT5( _
+        Call Win32.StringConvertCase_NT5( _
                     LocaleID:=Win32.ThreadLocale(), _
-                       Flags:=vbCaseUpper Or vbCaseLinguistic, _
+                       Flags:=w32CaseUpper Or w32CaseLinguistic, _
          SourceStringPointer:=VarPtr(Chars(0)), _
           SourceStringLength:=My_LengthB, _
          ResultStringPointer:=VarPtr(Chars(0)), _
@@ -2110,9 +2046,9 @@ Public Function UCase() As bluString
     Else
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
-        Call Win32.TextConvertCase_NT6( _
+        Call Win32.StringConvertCase_NT6( _
              LocaleNamePointer:=0&, _
-                         Flags:=vbCaseUpper Or vbCaseLinguistic, _
+                         Flags:=w32CaseUpper Or w32CaseLinguistic, _
            SourceStringPointer:=VarPtr(Chars(0)), _
             SourceStringLength:=My_LengthB, _
            ResultStringPointer:=VarPtr(Chars(0)), _

@@ -19,78 +19,8 @@ Option Explicit
 '======================================================================================
 'CLASS :: blu_Strings
 
-'Dependencies       blu > blu_Sys
-'Last Updated       20-JUL-15
-'Last Update        *   Updating `LCMapString...` API use to TLB implementation
-
-'/// API //////////////////////////////////////////////////////////////////////////////
-
-'Comparing Strings:
-'--------------------------------------------------------------------------------------
-
-'Binary string comparison (case-sensitive) _
- <msdn.microsoft.com/en-us/library/windows/desktop/dd317762(v=vs.85).aspx>
-Private Declare Function api_CompareStringOrdinal Lib "kernel32" Alias "CompareStringOrdinalW" ( _
-    ByVal String1Pointer As Long, _
-    ByVal String1Length As Long, _
-    ByVal String2Pointer As Long, _
-    ByVal String2Length As Long, _
-    ByVal IgnoreCase As BOOL _
-) As CSTR_
-
-'Unicode & Locale-aware string comparison (Windows XP) _
- <msdn.microsoft.com/en-us/library/windows/desktop/dd317759(v=vs.85).aspx>
-Private Declare Function api_CompareString Lib "kernel32" Alias "CompareStringW" ( _
-    ByVal LocaleID As Long, _
-    ByVal CompareFlags As CompareString_Flags, _
-    ByVal String1Pointer As Long, _
-    ByVal String1Length As Long, _
-    ByVal String2Pointer As Long, _
-    ByVal String2Length As Long _
-) As CSTR_
-
-'Unicode & Locale-aware string comparison (Windows Vista+) _
- <msdn.microsoft.com/en-us/library/windows/desktop/dd317761(v=vs.85).aspx>
-Private Declare Function api_CompareStringEx Lib "kernel32" Alias "CompareStringEx" ( _
-    ByVal LocaleNamePointer As Long, _
-    ByVal CompareFlags As CompareString_Flags, _
-    ByVal String1Pointer As Long, _
-    ByVal String1Length As Long, _
-    ByVal String2Pointer As Long, _
-    ByVal String2Length As Long, _
-    ByVal VersionInfoPointer As Long, _
-    ByVal ReservedPointer As Long, _
-    ByVal Param As Long _
-) As CSTR_
-
-Private Enum CompareString_Flags
-    'Ignore case, as linguistically appropriate
-    LINGUISTIC_IGNORECASE = &H10&
-    'Ignore nonspacing characters, as linguistically appropriate
-    LINGUISTIC_IGNOREDIACRITIC = &H20&
-    'Legacy ignore case -- less accurate than LINGUISTIC_IGNORECASE
-    NORM_IGNORECASE = &H1&
-    'Treat equivilent Japanese Hiragana and Katakana as the same
-    NORM_IGNOREKANATYPE = &H10000
-    'Legacy version of `LINGUISTIC_IGNOREDIACRITIC`
-    NORM_IGNORENONSPACE = &H2&
-    'Ignore symbols and punctuation
-    NORM_IGNORESYMBOLS = &H4&
-    'Ignore the difference between half-width and full-width characters
-    NORM_IGNOREWIDTH = &H20000
-    'Use linguistic rules for casing, instead of file system rules (default)
-    NORM_LINGUISTIC_CASING = &H8000000
-    'Treat punctuation the same as symbols
-    SORT_STRINGSORT = &H1000
-End Enum
-
-'Comparison API return values; _
- You can subtract 2 from these to get C-style values
-Private Enum CSTR_
-    CSTR_LESS_THAN = 1
-    CSTR_EQUAL = 2
-    CSTR_GREATER_THAN = 3
-End Enum
+'Last Updated       24-JUL-15
+'Last Update        *   Moved APIs to the type library
 
 '/// CLASS ////////////////////////////////////////////////////////////////////////////
 
@@ -200,24 +130,21 @@ Public Function CompareText( _
     'Check for Windows XP:
     If blu.sys.WindowsAPILevel = XP_OR_LOWER Then
         'Fall back to the XP-compatible API
-        Let CompareText = (api_CompareString( _
+        Let CompareText = (Win32.StringCompare_NT5( _
                   LocaleID:=Win32.ThreadLocale, _
-              CompareFlags:=NORM_IGNORECASE, _
+              CompareFlags:=w32IgnoreCase, _
             String1Pointer:=StrPtr(String1), String1Length:=-1, _
             String2Pointer:=StrPtr(String2), String2Length:=-1 _
-        ) = CSTR_EQUAL)
+        ) = Win32.StringCompareResult.w32Equal)
     Else
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
-        Let CompareText = (api_CompareStringEx( _
+        Let CompareText = (Win32.StringCompare_NT6( _
              LocaleNamePointer:=0&, _
-                  CompareFlags:=LINGUISTIC_IGNORECASE, _
+                  CompareFlags:=w32IgnoreCaseLinguistic, _
                 String1Pointer:=StrPtr(String1), String1Length:=-1, _
-                String2Pointer:=StrPtr(String2), String2Length:=-1, _
-            VersionInfoPointer:=0&, _
-               ReservedPointer:=0&, _
-                         Param:=0& _
-        ) = CSTR_EQUAL)
+                String2Pointer:=StrPtr(String2), String2Length:=-1 _
+        ) = Win32.StringCompareResult.w32Equal)
     End If
 End Function
 
@@ -266,7 +193,7 @@ Public Function FormatText( _
     
     'Prepate the output buffer (using the TLB-API here is faster than `Space$`!). _
      The string will currently contain garbage from previously used memory
-    Let FormatText = Win32.CreateUninitializedString(ByVal 0&, OutputLength)
+    Let FormatText = Win32.StringCreateUninitialized(ByVal 0&, OutputLength)
     
     'cache a bunch of stuff we're going to need
     Dim OutputPtr As Long

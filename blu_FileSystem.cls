@@ -19,7 +19,6 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluFileSystem
 
-'Dependencies       None, self-contained - INCOMPLETE
 'Last Updated       12-JUL-15
 'Last Update        Added a variety of functions
 

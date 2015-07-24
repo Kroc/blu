@@ -1,5 +1,7 @@
 *
+!.gitattributes
 !.gitignore
+!.gitmodules
 
 !CORE
 !DEBUG

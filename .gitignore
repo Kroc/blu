@@ -6,7 +6,7 @@
 !CORE
 !DEBUG
 !FILESYSTEM
-!TLB
+!W32TLB
 !UI
 
 !*.txt

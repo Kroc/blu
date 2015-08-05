@@ -21,6 +21,7 @@ Option Explicit
 
 'Last Updated       24-JUL-15
 'Last Update        *   Moved APIs to the type library
+'                   *   Added `UnicodeProperties` lookup table
 
 '/// CLASS ////////////////////////////////////////////////////////////////////////////
 
@@ -67,7 +68,7 @@ Public Enum UCS2
 '   5                           6                           7
 :   DIGIT_FIVE:                 DIGIT_SIX:                  DIGIT_SEVEN
 '   8                           9                           :
-:   DIGIT_EIGHT:                DIGIT_NINE:                 COLON
+:   DIGIT_EIGHT:                DIGIT_NINE:                 colon
 '   ;                           <                           =
 :   SEMICOLON:                  LESS_THAN_SIGN:             EQUALS_SIGN
 '   >                           ?                           @
@@ -101,22 +102,34 @@ Public Enum UCS2
 '   {                           |                           }
 :   LEFT_CURLY_BRACKET:         VERTICAL_LINE:              RIGHT_CURLY_BRACKET
 '   ~                           "Delete"
-:   TILDE:                      C0_DEL
+:   tilde:                      C0_DEL
 End Enum
 
 Private Const STR_SPC As String = " "
 Private Const STR_ELLIPSIS As String = "…"
 
+Private My_UnicodeProperties(-32768 To 65535) As Integer
+
 '/// EVENTS ///////////////////////////////////////////////////////////////////////////
 
+'CLASS Initialize
 '======================================================================================
 Private Sub Class_Initialize()
-    '
+    Dim i As Long
+    
+    'Create the lookup table of Unicode character properties
+    For i = -32768 To 32767: Let My_UnicodeProperties(i) = i: Next i
+    For i = 32768 To 65535: Let My_UnicodeProperties(i) = i - 65535: Next i
+    'Lock the array so that once externally accessed, it can't be redimmed or erased
+    Call Win32.ArrayLockAdd(ArrPtr(My_UnicodeProperties))
 End Sub
 
+'CLASS Terminate
 '======================================================================================
 Private Sub Class_Terminate()
-    '
+    'Unlock the Unicode character properties lookup table; _
+     since it's pre-dimmed, `Erase` will only zero it so leave it to drop out of scope
+    Call Win32.ArrayLockRemove(ArrPtr(My_UnicodeProperties))
 End Sub
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
@@ -305,3 +318,10 @@ Public Function FormatText( _
         End If
     End If
 End Function
+
+'UnicodeProperties
+'======================================================================================
+Public Property Get UnicodeProperties( _
+) As Integer()
+    Let UnicodeProperties = My_UnicodeProperties
+End Property

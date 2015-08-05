@@ -219,12 +219,6 @@ Private Declare Function api_ReadFile Lib "kernel32" Alias "ReadFile" ( _
     ByVal OverlappedPointer As Long _
 ) As BOOL
 
-'Close an opened file (or other) handle _
- <msdn.microsoft.com/en-us/library/windows/desktop/ms724211(v=vs.85).aspx>
-Private Declare Function api_CloseHandle Lib "kernel32" Alias "CloseHandle" ( _
-    ByVal Handle As Long _
-) As BOOL
-
 '/// CLASS ////////////////////////////////////////////////////////////////////////////
 
 'A lot of methods here rely upon a Null-terminated string buffer of `MAX_PATH` length; _
@@ -282,81 +276,22 @@ Public Function FileFolder( _
     Let FileFolder = APIString.Text
 End Function
 
-'FileReadBinary_AsArray : Read a binary file into a byte-array
-'======================================================================================
-'FilePath       | String containing the path to the file to read
-'ReturnArray()  | Uinitialised byte array to accept the file contents
-'---------------¦----------------------------------------------------------------------
-'Returns        | An error number
-'======================================================================================
-Public Function FileReadBinary_AsArray( _
-    ByRef FilePath As String, _
-    ByRef ReturnArray() As Byte _
-) As Long
-    'Use the Windows API to access the file, _
-     this avoids VB's slow and unwieldy error handling
-    Dim FileHandle As Long
-    'NOTE: For reasons not yet understood, this call is actually *slower* reading from _
-           USB/SSD drives than using VB's `InputB`... go figure
-    Let FileHandle = api_CreateFile( _
-                    FileNamePointer:=StrPtr(FilePath), _
-                      DesiredAccess:=GENERIC_READ, _
-                          ShareMode:=FILE_SHARE_READ, _
-          SecurityAttributesPointer:=0&, _
-                CreationDisposition:=OPEN_EXISTING, _
-                 FlagsAndAttributes:=FILE_FLAGS.FILE_ATTRIBUTE_NORMAL _
-                                  Or FILE_FLAGS.FILE_FLAG_SEQUENTIAL_SCAN, _
-                 TemplateFileHandle:=0& _
-    )
-    
-    If FileHandle = -1 Then
-        Stop
-        Exit Function
-    End If
-    
-    'Get the file size using the Windows API
-    Dim FileSize As Currency
-    If api_GetFileSizeEx(FileHandle, FileSize) = BOOL_FALSE Then
-        Call api_CloseHandle(FileHandle)
-        Stop
-        Exit Function
-    End If
-    
-    'The Currency type has two decimal places, so push this up to whole bytes
-    Let FileSize = FileSize * 10000
-    
-    'Is the file too big?
-    'Note that we cannot open a file larger than 2 GB as we will be walking _
-     the buffer using a signed Long which will go negative above 2 Billion
-    If FileSize > FILE_MAX Then
-        Call api_CloseHandle(FileHandle)
-        Stop
-        Exit Function
-    End If
-    
-    'For speed, use a Long instead of a Currency
-    Dim FileLength As Long
-    Let FileLength = FileSize
-    
-    ReDim ReturnArray(0 To FileLength) As Byte
-    
-    Call api_ReadFile( _
-           FileHandle:=FileHandle, _
-        BufferPointer:=VarPtr(ReturnArray(0)), _
-  NumberOfBytesToRead:=FileLength, _
-    NumberOfBytesRead:=FileLength, _
-    OverlappedPointer:=0& _
-    )
-    
-    Call api_CloseHandle(FileHandle)
-End Function
-
-'Public Function FileLoadText( _
-'    ByRef FilePath As String _
-') As String
+''FileReadBinary_AsArray : Read a binary file into a byte-array
+''======================================================================================
+''FilePath       | String containing the path to the file to read
+''ReturnArray()  | Uinitialised byte array to accept the file contents
+''---------------¦----------------------------------------------------------------------
+''Returns        | An error number
+''======================================================================================
+'Public Function FileReadBinary_AsArray( _
+'    ByRef FilePath As String, _
+'    ByRef ReturnArray() As Byte _
+') As Long
 '    'Use the Windows API to access the file, _
 '     this avoids VB's slow and unwieldy error handling
 '    Dim FileHandle As Long
+'    'NOTE: For reasons not yet understood, this call is actually *slower* reading from _
+'           USB/SSD drives than using VB's `InputB`... go figure
 '    Let FileHandle = api_CreateFile( _
 '                    FileNamePointer:=StrPtr(FilePath), _
 '                      DesiredAccess:=GENERIC_READ, _
@@ -367,265 +302,48 @@ End Function
 '                                  Or FILE_FLAGS.FILE_FLAG_SEQUENTIAL_SCAN, _
 '                 TemplateFileHandle:=0& _
 '    )
+'
+'    If FileHandle = -1 Then
+'        Stop
+'        Exit Function
+'    End If
+'
+'    'Get the file size using the Windows API
+'    Dim FileSize As Currency
+'    If api_GetFileSizeEx(FileHandle, FileSize) = BOOL_FALSE Then
+'        Call Win32.FileClose(FileHandle)
+'        Stop
+'        Exit Function
+'    End If
+'
+'    'The Currency type has two decimal places, so push this up to whole bytes
+'    Let FileSize = FileSize * 10000
+'
+'    'Is the file too big?
+'    'Note that we cannot open a file larger than 2 GB as we will be walking _
+'     the buffer using a signed Long which will go negative above 2 Billion
+'    If FileSize > FILE_MAX Then
+'        Call Win32.FileClose(FileHandle)
+'        Stop
+'        Exit Function
+'    End If
+'
+'    'For speed, use a Long instead of a Currency
+'    Dim FileLength As Long
+'    Let FileLength = FileSize
+'
+'    ReDim ReturnArray(0 To FileLength) As Byte
+'
+'    Call api_ReadFile( _
+'           FileHandle:=FileHandle, _
+'        BufferPointer:=VarPtr(ReturnArray(0)), _
+'  NumberOfBytesToRead:=FileLength, _
+'    NumberOfBytesRead:=FileLength, _
+'    OverlappedPointer:=0& _
+'    )
+'
+'    Call Win32.FileClose(FileHandle)
 'End Function
-
-'FileReadText_AsArray : Returns an Integer array of UTF-16 Unicode points for a file
-'======================================================================================
-'FilePath       | Path to the file to read
-'---------------¦----------------------------------------------------------------------
-'Returns        | An error number
-'======================================================================================
-Public Function FileReadText_AsArray( _
-    ByRef FilePath As String, _
-    ByRef ReturnArray() As Integer _
-) As Long
-    'Get the text file as raw binary, as the file encoding could be unknown. _
-     we'll work out the encoding (UTF-8/16, ANSI/ASCII) and convert the file _
-     into a standard Windows UTF-16 (UCS-2) string
-    Dim FileBuffer() As Byte
-    Let FileReadText_AsArray = FileReadBinary_AsArray( _
-        FilePath, FileBuffer _
-    )
-    
-    If FileReadText_AsArray <> 0 Then
-        Stop
-        Exit Function
-    End If
-    
-    Dim FileLength As Long
-    Let FileLength = UBound(FileBuffer)
-
-'    'Check for a Byte-Order-Mark:
-'    '----------------------------------------------------------------------------------
-'    'Not many files have a Byte-Order-Mark that specifies the file encoding, _
-'     but if it is there it makes life a lot easier
-'    Dim Encoding As blu_FileEncoding
-'
-'    'Read the first four bytes:
-'    'TODO: Check the file is even four bytes long!
-'    Dim BOM(1 To 4) As Byte
-'    Get #FileNumber, , BOM()
-'
-'    ' FF FE         UTF-16, little endian
-'    ' FE FF         UTF-16, big endian
-'    ' EF BB BF      UTF-8
-'    ' FF FE 00 00   UTF-32, little endian
-'    ' 00 00 FE FF   UTF-32, big-endian
-'
-'    'Check for either UTF-16 Little Endian or UTF32 Little Endian
-'    If BOM(1) = &HFF Then
-'        'In both cases the second byte must be $FE
-'        If BOM(2) = &HFE Then
-'            'If UTF-32 there will be two nulls indicating a 4-byte character
-'            If (BOM(3) = 0) And (BOM(4) = 0) _
-'                Then Let Encoding = UTF32_LE _
-'                Else Let Encoding = UTF16_LE
-'        End If
-'    'UTF-16 Big Endian begins with the $FE byte
-'    ElseIf BOM(1) = &HFE Then
-'        'Verify that the second byte is $FF
-'        If BOM(2) = &HFF Then Let Encoding = UTF16_BE
-'    'Look for the UTF-8 three-byte sequence
-'    ElseIf BOM(1) = &HEF Then
-'        'Note that UTF-8 is neither Little or Big Endian
-'        If (BOM(2) = &HBB) And (BOM(3) = &HBF) Then Let Encoding = UTF8
-'    'Nulls first could be a Big Endian UTF-32 file
-'    ElseIf BOM(1) = 0 Then
-'        'Check the next three bytes for the unique pattern
-'        If (BOM(2) = 0) And (BOM(3) = &HFE) And (BOM(4) = &HFF) _
-'            Then Let Encoding = UTF32_BE
-'    End If
-
-    'Walk, validate and convert:
-    '-----------------------------------------------------------------------------------
-    Dim i As Long
-    'When parsing ASCII/UTF-8, bytes above 127 will be treated as ANSI _
-     (Windows 1252 code-page) if invalid as a UTF-8 sequence
-    Dim Windows1252ToUTF16(0 To &HFF) As Integer
-    'Up to $80, ANSI is the same as ASCII
-    For i = 0 To &H7F&: Let Windows1252ToUTF16(i) = i: Next i
-    'These mappings were produced with the help of _
-     <lingua-systems.com/unicode-converter/unicode-mappings/encode-windows-1252-to-utf-8-unicode.html>
-    'NOTE: For undefined points, the Unicode Replacement Character is suplimented _
-     so as not to leave a Null in our string which may break API calls using it
-    Let Windows1252ToUTF16(&H80&) = &H20AC      ' €   EURO SIGN
-    Let Windows1252ToUTF16(&H81&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
-    Let Windows1252ToUTF16(&H82&) = &H201A      ' ‚   SINGLE LOW-9 QUOTATION MARK
-    Let Windows1252ToUTF16(&H83&) = &H192       ' ƒ   LATIN SMALL LETTER F WITH HOOK
-    Let Windows1252ToUTF16(&H84&) = &H201E      ' „   DOUBLE LOW-9 QUOTATION MARK
-    Let Windows1252ToUTF16(&H85&) = &H2026      ' …   HORIZONTAL ELLIPSIS
-    Let Windows1252ToUTF16(&H86&) = &H2020      ' †   DAGGER
-    Let Windows1252ToUTF16(&H87&) = &H2021      ' ‡   DOUBLE DAGGER
-    Let Windows1252ToUTF16(&H88&) = &H2C6       ' ˆ   MODIFIER LETTER CIRCUMFLEX ACCENT
-    Let Windows1252ToUTF16(&H89&) = &H2030      ' ‰   PER MILLE SIGN
-    Let Windows1252ToUTF16(&H8A&) = &H160       ' Š   LATIN CAPITAL LETTER S WITH CARON
-    Let Windows1252ToUTF16(&H8B&) = &H2039      ' ‹   SINGLE LEFT-POINTING ANGLE QUOTATION MARK
-    Let Windows1252ToUTF16(&H8C&) = &H152       ' Œ   LATIN CAPITAL LIGATURE OE
-    Let Windows1252ToUTF16(&H8D&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
-    Let Windows1252ToUTF16(&H8E&) = &H17D       ' Ž   LATIN CAPITAL LETTER Z WITH CARON
-    Let Windows1252ToUTF16(&H8F&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
-    Let Windows1252ToUTF16(&H90&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
-    Let Windows1252ToUTF16(&H91&) = &H2018      ' ‘   LEFT SINGLE QUOTATION MARK
-    Let Windows1252ToUTF16(&H92&) = &H2019      ' ’   RIGHT SINGLE QUOTATION MARK
-    Let Windows1252ToUTF16(&H93&) = &H201C      ' “   LEFT DOUBLE QUOTATION MARK
-    Let Windows1252ToUTF16(&H94&) = &H201D      ' ”   RIGHT DOUBLE QUOTATION MARK
-    Let Windows1252ToUTF16(&H95&) = &H2022      ' •   BULLET
-    Let Windows1252ToUTF16(&H96&) = &H2013      ' –   EN DASH
-    Let Windows1252ToUTF16(&H97&) = &H2014      ' —   EM DASH
-    Let Windows1252ToUTF16(&H98&) = &H20DC      ' ˜    SMALL TILDE
-    Let Windows1252ToUTF16(&H99&) = &H2122      ' ™   TRADE MARK SIGN
-    Let Windows1252ToUTF16(&H9A&) = &H161       ' š   LATIN SMALL LETTER S WITH CARON
-    Let Windows1252ToUTF16(&H9B&) = &H203A      ' ›   SINGLE RIGHT-POINTING ANGLE QUOTATION MARK
-    Let Windows1252ToUTF16(&H9C&) = &H153       ' œ   LATIN SMALL LIGATURE OE
-    Let Windows1252ToUTF16(&H9D&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
-    Let Windows1252ToUTF16(&H9E&) = &H17E       ' ž   LATIN SMALL LETTER Z WITH CARON
-    Let Windows1252ToUTF16(&H9F&) = &H178       ' Ÿ   LATIN CAPITAL LETTER Y WITH DIAERESIS
-    'Only points $80 to $9F differ from standard Unicode points
-    For i = &HA0& To &HFF&: Let Windows1252ToUTF16(i) = i: Next i
-
-'    Dim CodePoint(1 To 4) As Byte
-'    Dim CodePoint8 As Byte
-'    Dim CodePoint16 As Integer
-'    Dim CodePoint32 As Long
-'
-'    'For UTF-32 we only need to split the surrogate pairs
-'    '..................................................................................
-'    If Encoding = UTF32_LE Then
-'        Do While VBA.EOF(FileNumber) = True
-'            'Read the full four bytes
-'            Get #FileNumber, , CodePoint32
-'            'If the upper 2 bytes are 0, then the code point is 16-bits only
-'            If (CodePoint32 \ &H10000) = 0 Then
-'                'Add as-is to our string
-'                Call Win32.MoveMemory( _
-'                    OutputPointer:=Data(i), _
-'                    SourcePointer:=VarPtr(CodePoint32), _
-'                      LengthBytes:=2 _
-'                )
-'                Let i = i + 1
-'
-'            'If a full 32-bit value, then it needs to be converted to a pair of UTF-16 _
-'             characters using the low/high surrogate characters (D8xx & DCxx)
-'            Else
-'
-'                Stop
-'            End If
-'        Loop
-'
-'    End If
-
-UTF8:
-    '----------------------------------------------------------------------------------
-    '<vovisoft.com/unicode/unifunctions.htm#ToUTF16>
-    '<rsdn.ru/forum/vb/2316535.1>
-    
-    'It's not possible for a UTF-8 file to have more characters than it has bytes, _
-     so we can set the number of characters in our string to match (at least) the _
-     number of bytes in the file. After the file is parsed, the buffer will be cut _
-     down to the final number of characters
-    
-    ReDim ReturnArray(0 To FileLength) As Integer
-    
-    Dim Byte1 As Byte, Byte2 As Byte, Byte3 As Byte
-    Dim B As Long
-    
-    Let i = 0
-    Do
-        'Read one byte to begin with
-        Let Byte1 = FileBuffer(B): Let B = B + 1
-        
-        If Byte1 = 0 Then
-            '
-            
-        'If this is <128 then it's the same in ASCII/ANSI/UTF-8
-        '..............................................................................
-        ElseIf (Byte1 And &H80) = 0 Then
-            'Add it to our string, and continue
-            Let ReturnArray(i) = Byte1
-            Let i = i + 1
-            
-        'UTF-8 byte sequences will begin with either "110?????" ($C0-$DF), _
-         "1110????" ($E0-$EF) or "11110???" ($F0-$F7). Therefore bytes between $80 _
-         and $9F will be treated as ANSI and converted from the Windows-1252 code-page
-        '..............................................................................
-        'This will test that the top three bits are "100?????" ($80-$9F)
-        ElseIf (Byte1 And &HE0&) = &H80& Then
-            Let ReturnArray(i) = Windows1252ToUTF16(Byte1)
-            Let i = i + 1
-            
-        'Is this a 2-byte UTF-8 sequence? _
-         (check that the top three bits are "110?????")
-        '..............................................................................
-        ElseIf (Byte1 And &HE0&) = &HC0& Then
-            'Fetch another byte to see if this is a UTF-8 sequence
-            Let Byte2 = FileBuffer(B): Let B = B + 1
-            
-            'The bytes in a UTF-8 sequence must be in the form "10??????"
-            If (Byte2 And &HC0&) = &H80& Then
-                'Decode the two UTF-8 bytes into a Unicode point
-                Let ReturnArray(i) = (Byte1 And &H1F) * &H40& + (Byte2 And &H3F&)
-                Let i = i + 1
-            Else
-                'The second byte is not part of a UTF-8 sequence, _
-                 the first byte is above 127 so has to be treated as ANSI
-                Let ReturnArray(i) = Windows1252ToUTF16(Byte1)
-                Let i = i + 1
-                'The second byte could be either ASCII or ANSI, but our conversion _
-                 table keeps the ASCII bytes the same anyway
-                Let ReturnArray(i) = Windows1252ToUTF16(Byte2)
-                Let i = i + 1
-            End If
-            
-        'Is this a 3-byte UTF-8 sequence? _
-         (check that the top four bits are "1110????")
-        '..............................................................................
-        ElseIf (Byte1 And &HF0&) = &HE0& Then
-            'Fetch another byte to see if this is a UTF-8 sequence
-            Let Byte2 = FileBuffer(B): Let B = B + 1
-            
-            'The bytes in a UTF-8 sequence must be in the form "10??????"
-            If (Byte2 And &HC0&) = &H80& Then
-                'Get the third byte
-                Let Byte3 = FileBuffer(B): Let B = B + 1
-                
-                'Check that this too follows the correct form "10??????"
-                If (Byte2 And &HC0&) = &H80& Then
-                    'Decode the three UTF-8 bytes into a Unicode point
-                    Let ReturnArray(i) = (Byte1 And &HF&) * &H1000 _
-                                       + (Byte2 And &H3F&) * &H40 _
-                                       + (Byte3 And &H3F&)
-                    Let i = i + 1
-                Else
-                    'Not a valid UTF-8 sequence, treat all three bytes as ASCII/ANSI
-                    Let ReturnArray(i) = Windows1252ToUTF16(Byte1): Let i = i + 1
-                    Let ReturnArray(i) = Windows1252ToUTF16(Byte2): Let i = i + 1
-                    Let ReturnArray(i) = Windows1252ToUTF16(Byte3): Let i = i + 1
-                End If
-            Else
-                'The second byte is not part of a UTF-8 sequence, _
-                 the first byte is above 127 so has to be treated as ANSI
-                Let ReturnArray(i) = Windows1252ToUTF16(Byte1)
-                Let i = i + 1
-                'The second byte could be either ASCII or ANSI, but our conversion _
-                 table keeps the ASCII bytes the same anyway
-                Let ReturnArray(i) = Windows1252ToUTF16(Byte2)
-                Let i = i + 1
-            End If
-            
-        'Not a plausible UTF-8 sequence byte, treat as ANSI
-        Else
-            Let ReturnArray(i) = Windows1252ToUTF16(Byte1)
-            Let i = i + 1
-        End If
-    Loop While B <= FileLength
-    
-    ReDim Preserve ReturnArray(0 To i - 1) As Integer
-    
-    'Clean up the small conversion table
-    Erase Windows1252ToUTF16
-    
-Finish:
-End Function
 
 'PathCombine
 '======================================================================================
@@ -729,3 +447,33 @@ Public Function SpecialFolder( _
         Let SpecialFolder = Left$(Result, InStr(1, Result, vbNullChar) - 1)
     End If
 End Function
+
+'WorkingDirectory
+'======================================================================================
+'Returns        | Path to the either the user's working directory, otherwise `App.Path`
+'======================================================================================
+Public Property Get WorkingDirectory( _
+) As String
+    'If your app is called from a command line that is not within the same directory _
+     as your app, you'll find that `App.Path` is no use for resolving relative paths; _
+     for example: If a command line is in "C:\DATA\" and your app is in "C:\APP\" then _
+     launching your app outside of its own path (e.g. "..\APP\APP.EXE") will mean that _
+     `App.Path` will not be pointing to the users' location ("C:\DATA\"). If they have _
+     provided a relative path on the command arguments, you'll need to know what path _
+     the app was called from
+    
+    'In the IDE `CurDir` will provide VB6's folder or System32 (if running elevated)! _
+     In this instance, the most useful thing we can do is use `App.Path` which will _
+     give the Project's folder
+    
+    '----------------------------------------------------------------------------------
+    
+    'Are we in the IDE?
+    If blu.sys.InIDE Then
+        'Provide the Project's directory
+        Let WorkingDirectory = App.Path
+    Else
+        'Running compiled -- provide the real working directory
+        Let WorkingDirectory = VBA.CurDir$
+    End If
+End Property

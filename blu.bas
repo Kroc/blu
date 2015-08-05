@@ -24,17 +24,10 @@ Private Declare Function api_lstrcpyn Lib "kernel32" Alias "lstrcpynW" ( _
     ByVal iMaxLength As Long _
 ) As Long
 
-Private Declare Function api_lstrlen Lib "kernel32" Alias "lstrlenW" ( _
-    ByVal lpString As Long _
-) As Long
-
 '<msdn.microsoft.com/en-us/library/bb773602(v=vs.85).aspx>
 Private Declare Function api_PathGetArgs Lib "shlwapi" Alias "PathGetArgsW" ( _
     ByVal SourcePathPointer As Long _
 ) As Long
-
-'/// CLASS ////////////////////////////////////////////////////////////////////////////
-
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
 
@@ -56,7 +49,7 @@ Public Function CommandParams() As String()
      we can use its `SplitWords` method to make the rest easy
     Dim CommandStr As bluString
     Set CommandStr = New bluString
-    Let CommandStr.Buffer = 260
+    Let CommandStr.Buffer = MAX_PATH
     
     'When in the IDE, use the command line provided in the Project Properties
     If blu.sys.InIDE Then
@@ -74,7 +67,7 @@ Public Function CommandParams() As String()
             'This is a null-terminated string and we _
              won't know the length until we count
             Dim CommandStrLen As Long
-            Let CommandStrLen = api_lstrlen(CommandStrPtr)
+            Let CommandStrLen = Win32.StringLengthUpToNull(CommandStrPtr)
             
             If CommandStrLen <> 0 Then
                 Let CommandStr.Length = CommandStrLen
@@ -84,7 +77,7 @@ Public Function CommandParams() As String()
         End If
     End If
     
-    MsgBox CommandStr.Text
+'    MsgBox CommandStr.Text
     
     Dim Words() As String
     Let Words = CommandStr.SplitWords(True)
@@ -99,39 +92,3 @@ Public Function CommandParams() As String()
     'Free the bluString
     Set CommandStr = Nothing
 End Function
-
-'WorkingDirectory
-'======================================================================================
-'Returns        | Path to the either the user's working directory, otherwise `App.Path`
-'======================================================================================
-Public Property Get WorkingDirectory() As String
-    'If your app is called from a command line that is not within the same directory _
-     as your app, you'll find that `App.Path` is no use for resolving relative paths; _
-     for example: If a command line is in "C:\data\" and your app is in "C:\app\" then _
-     launching your app outside of its own path (e.g. "..\app\app.exe") will mean that _
-     `App.Path` will not be pointing to the users' location ("C:\data"). If they have _
-     provided a relative path on the command arguments, you'll need to know what path _
-     the app was called from
-    
-    'VB's `CurDir$` function will provide you with the working directory, except only _
-     in instances where your app has been launched via command line -- under the more _
-     common instance of the app launched via Explorer, `CurDir$` will return System32; _
-     in which case what we actually want is `App.Path`!
-    
-    'This function handles these behaviours and gives a consistent path to use
-    
-    '----------------------------------------------------------------------------------
-    
-    'Begin with the directory provided by VB. This will be System32 if the app is _
-     launched via Explorer (i.e. typically), otherwise the correct working directory _
-     if called from a command line prompt
-    Let WorkingDirectory = VBA.CurDir$
-    
-    'Check if System32 was returned
-    If blu.Strings.CompareText( _
-        WorkingDirectory, blu.FileSystem.SpecialFolder(CSIDL_SYSTEM) _
-    ) Then
-        'If so, provide the app's path as the working directory
-        Let WorkingDirectory = App.Path
-    End If
-End Property

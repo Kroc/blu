@@ -19,8 +19,10 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluString
 
-'Last Updated       24-JUL-15
-'Last Update
+'Last Updated       03-AUG-15
+'Last Update        *   Changed `Char`, `CharInsert`, `CharPull`, `CharPush` and
+'                       `CharRemove` to use Integer character codes
+'                   *   `CharPushInt` was removed as `CharPush` now does this
 
 'Always get the latest version of this file at <github.com/Kroc/blu>. _
  Feedback can be sent to <kroc@camendesign.com>
@@ -49,20 +51,6 @@ Option Explicit
 
 'Unicode character properties:
 '--------------------------------------------------------------------------------------
-'Returns an array of Unicode character properties for a string _
- <msdn.microsoft.com/en-us/library/windows/desktop/dd318119(v=vs.85).aspx>
-Private Declare Function api_GetStringType Lib "kernel32" Alias "GetStringTypeW" ( _
-    ByVal InfoType As CT, _
-    ByVal SourceStringPointer As Long, _
-    ByVal SourceStringLength As Long, _
-    ByVal CharTypePointer As Long _
-) As BOOL
-
-Private Enum CT
-    CT_CTYPE1 = &H1                     'Character type info (unicode properties)
-    CT_CTYPE2 = &H2                     'Bi-directional layout information
-    CT_CTYPE3 = &H3                     'Text-processing information
-End Enum
 
 Public Enum C1
     C1_UPPER = 2 ^ 0                    'Uppercase
@@ -109,11 +97,79 @@ Private Type bluString_FormatData
     ByteCount As Long
 End Type
 
-'Counts the length of a string, looking for the first Null _
- <msdn.microsoft.com/en-us/library/windows/desktop/ms647492(v=vs.85).aspx>
-Private Declare Function api_lstrlen Lib "kernel32" Alias "lstrlenW" ( _
-    ByVal lpString As Long _
+'File Loading & Saving:
+'--------------------------------------------------------------------------------------
+
+'Open a file for reading/writing _
+ <msdn.microsoft.com/en-us/library/windows/desktop/aa363858(v=vs.85).aspx>
+Private Declare Function api_CreateFile Lib "kernel32" Alias "CreateFileW" ( _
+    ByVal FileNamePointer As Long, _
+    ByVal DesiredAccess As GENERIC, _
+    ByVal ShareMode As FILE_SHARE, _
+    ByVal SecurityAttributesPointer As Long, _
+    ByVal CreationDisposition As CREATE, _
+    ByVal FlagsAndAttributes As FILE_FLAGS, _
+    ByVal TemplateFileHandle As Long _
 ) As Long
+
+'Simple file access flags _
+ <msdn.microsoft.com/en-us/library/windows/desktop/aa446632(v=vs.85).aspx>
+Private Enum GENERIC
+    GENERIC_ALL = &H10000000
+    GENERIC_READ = &H80000000
+    GENERIC_WRITE = &H40000000
+    GENERIC_EXECUTE = &H20000000
+End Enum
+
+Private Enum FILE_SHARE
+    FILE_SHARE_READ = 1                 'Allow others to read the file
+    FILE_SHARE_WRITE = 2                'Allow others to write to the file
+    FILE_SHARE_DELETE = 4               'Allow others to delete/rename the file
+End Enum
+
+Private Enum CREATE
+    CREATE_NEW = 1                      'Create a file only if it doesn't exist
+    CREATE_ALWAYS = 2                   'Create or overwrite
+    OPEN_EXISTING = 3                   'Open a file only if it already exists
+    TRUNCATE_EXISTING = 5               'If file exists, reduce it to zero bytes
+End Enum
+
+Private Enum FILE_FLAGS
+    'The file does not have other attributes set
+    'This attribute is valid only if used alone
+    FILE_ATTRIBUTE_NORMAL = &H80&
+    
+    FILE_ATTRIBUTE_ARCHIVE = &H20&      'Mark the file as archived
+    FILE_ATTRIBUTE_HIDDEN = &H2&        'Hide the file
+    FILE_ATTRIBUTE_READONLY = &H1&      'Make the file read-only
+    FILE_ATTRIBUTE_SYSTEM = &H4&        'Make the file a System file
+    FILE_ATTRIBUTE_TEMPORARY = &H100&   'The file is intended for temporary usage
+    
+    'Hint to caching that the file will be accessed randomly
+    FILE_FLAG_RANDOM_ACCESS = &H10000000
+    'Hint to caching that the file be read/written from start to finish
+    FILE_FLAG_SEQUENTIAL_SCAN = &H8000000
+End Enum
+
+'Get the size of a file in bytes, including ones over 4 GB _
+ <msdn.microsoft.com/en-us/library/windows/desktop/aa364957(v=vs.85).aspx>
+Private Declare Function api_GetFileSizeEx Lib "kernel32" Alias "GetFileSizeEx" ( _
+    ByVal FileHandle As Long, _
+    ByRef FileSize As Currency _
+) As BOOL
+
+'Maximum file size we can load = (2 ^ 31) - 1
+Private Const FILE_MAX As Long = 2147483647
+
+'Read the contents of a file _
+ <msdn.microsoft.com/en-us/library/windows/desktop/aa365467(v=vs.85).aspx>
+Private Declare Function api_ReadFile Lib "kernel32" Alias "ReadFile" ( _
+    ByVal FileHandle As Long, _
+    ByVal BufferPointer As Long, _
+    ByVal NumberOfBytesToRead As Long, _
+    ByRef NumberOfBytesRead As Long, _
+    ByVal OverlappedPointer As Long _
+) As BOOL
 
 '/// CLASS ////////////////////////////////////////////////////////////////////////////
 
@@ -245,7 +301,7 @@ Private CRCValid As Long
        (therefore not wasting memory for a string that is not yet populated, _
         but more so that the reserved memory does not have to be reallocated _
         if a String larger than the default buffer is created first)
-           
+
 'CLASS Terminate
 '======================================================================================
 Private Sub Class_Terminate()
@@ -342,7 +398,7 @@ End Property
 '======================================================================================
 Public Property Get Char( _
     ByVal Index As Long _
-) As UCS2
+) As Integer
     'NOTE: Though `My_Length` is 1-based, but `Index` is 0-based, we allow the user _
            to access the spare element at the end as it will be the null terminator, _
            which the end-user may wish to check for (blind-looping, for example)
@@ -358,30 +414,24 @@ Public Property Get Char( _
         'The negative position cannot be more than the length of our string
         If Abs(Index) > My_Length Then Err.Raise (9): Exit Property
         'Calculate the new position from the end of our string
-        Let Char = (Chars(My_Length + Index) And &HFFFF&)
+        Let Char = Chars(My_Length + Index)
     Else
         'Return the character value in question _
          The user can use `And &HFF&` to get ASCII
-        Let Char = (Chars(Index) And &HFFFF&)
+        Let Char = Chars(Index)
     End If
 End Property
 Public Property Let Char( _
     ByVal Index As Long, _
-    ByVal Char As UCS2 _
+    ByVal Char As Integer _
 )
     'If a character index is provided outside of the length of the string, error. _
      (note that, compared to the getter, you may not write to the null terminator)
     If Not my_ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Property
-    'Validate the character code. It could be negative if it came from a VB _
-     signed-Integer, so this is converted to the positive equivilent
-    If Not my_ValidateChar(Char) Then Err.Raise (9): Exit Property
     
-    'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
-     we convert them to their signed equivilent to stuff them into two bytes
-    If Char >= 32768 _
-        Then Let Chars(Index) = (Char And &HFFFF&) - 65536 _
-        Else Let Chars(Index) = (Char And &HFFFF&)
-    
+    'The Integer type enforces validity here
+    Let Chars(Index) = Char
+       
     'Changes to our string will invalidate the CRC
     Let CRCValid = 0
 End Property
@@ -431,13 +481,13 @@ End Sub
 '======================================================================================
 'Index          | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
-'Char           | A Unicode character code (0 to 65535)
+'Char           | A Unicode character code (signed-Integer)
 '---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function CharInsert( _
     ByVal Index As Long, _
-    ByVal Char As UCS2 _
+    ByVal Char As Integer _
 ) As bluString
     'Allow method chaining
     Set CharInsert = Me
@@ -445,9 +495,6 @@ Public Function CharInsert( _
     'Check the character index is within range, _
      a negative Index will work backwards from the end of the string
     If Not my_ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
-    'Validate the character code. It could be negative if it came from a VB _
-     signed-Integer, so this is converted to the positive equivilent
-    If Not my_ValidateChar(Char) Then Err.Raise (9): Exit Function
     
     'Increase the string length by 1 to make room _
      (this will also invalidate the cached CRC)
@@ -462,11 +509,7 @@ Public Function CharInsert( _
           LengthBytes:=(My_Length - Index - 1) * 2 _
     )
     
-    'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
-         we convert them to their signed equivilent to stuff them into two bytes
-    If Char >= 32768 _
-        Then Let Chars(Index) = (Char And &HFFFF&) - 65536 _
-        Else Let Chars(Index) = (Char And &HFFFF&)
+    Let Chars(Index) = Char
 End Function
 
 'CharIsAlpha : Returns true if the character at the index is a letter
@@ -633,29 +676,29 @@ End Property
 '======================================================================================
 Public Property Get CharProperties( _
     ByVal Index As Long _
-) As C1
+) As Integer
     'Check the character index is within range, _
      a negative Index will work backwards from the end of the string
     If Not my_ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Property
     'Use the API to fill the return value with the character properties
-    Call api_GetStringType( _
-                   InfoType:=CT_CTYPE1, _
-        SourceStringPointer:=VarPtr(Chars(Index)), _
-         SourceStringLength:=1, _
-            CharTypePointer:=VarPtr(CharProperties) _
+    Call Win32.StringUnicodeInfo( _
+                   InfoType:=w32CharType, _
+              StringPointer:=VarPtr(Chars(Index)), _
+               StringLength:=1, _
+    ResultArrayFirstElement:=CharProperties _
     )
 End Property
 
 'CharPull : Removes the last character of the string and returns the character code
 '======================================================================================
-'Returns        | A Unicode character point (0 to 65535)
+'Returns        | A Unicode character point (signed-Integer)
 '======================================================================================
-Public Function CharPull() As UCS2
+Public Function CharPull() As Integer
     'If there are no characters, just return null
     If My_Length = 0 Then Exit Function
     'Return the character value in question _
      The user can use `And &HFF&` to get ASCII
-    Let CharPull = (Chars(My_Length - 1) And &HFFFF&)
+    Let CharPull = Chars(My_Length - 1)
     'Reduce the size of the string
     Call my_SetLength(My_Length - 1)
     'Changes to our string will invalidate the CRC
@@ -664,44 +707,15 @@ End Function
 
 'CharPush : Appends a single character code to the end of the string
 '======================================================================================
-'Char           | Unicode character point (0 to 65535)
+'Char           | Unicode character point (signed-Integer)
 '---------------¦----------------------------------------------------------------------
 'Returns        | This class object (method chaining)
 '======================================================================================
 Public Function CharPush( _
-    ByVal Char As UCS2 _
-) As bluString
-    'Allow method chaining
-    Set CharPush = Me
-    'Validate the character code. It could be negative if it came from a VB _
-     signed-Integer, so this is converted to the positive equivilent
-    If Not my_ValidateChar(Char) Then Err.Raise (9): Exit Function
-    
-    'Increase the length of our string by one character _
-     (the buffer will manage any necessary growth)
-    Call my_SetLength(My_Length + 1)
-    'Changes to our string will invalidate the CRC
-    Let CRCValid = 0
-    
-    'Set the character code of the last character
-    'VB6 can only do signed Integers, so Unicode points 32'768+ will error unless _
-         we convert them to their signed equivilent to stuff them into two bytes
-    If Char >= 32768 _
-        Then Let Chars(My_Length - 1) = (Char And &HFFFF&) - 65536 _
-        Else Let Chars(My_Length - 1) = (Char And &HFFFF&)
-End Function
-
-'CharPushInt : Appends a character code to the end of our string with less validation
-'======================================================================================
-'Char           | Unicode character point as signed Integer (-32768 to 32767)
-'---------------¦----------------------------------------------------------------------
-'Returns        | This class object (method chaining)
-'======================================================================================
-Public Function CharPushInt( _
     ByVal Char As Integer _
 ) As bluString
     'Allow method chaining
-    Set CharPushInt = Me
+    Set CharPush = Me
     
     'Increase the length of our string by one character _
      (the buffer will manage any necessary growth)
@@ -709,7 +723,6 @@ Public Function CharPushInt( _
     'Changes to our string will invalidate the CRC
     Let CRCValid = 0
     
-    'Set the character code of the last character
     Let Chars(My_Length - 1) = Char
 End Function
 
@@ -718,11 +731,11 @@ End Function
 '[Index]        | Position within string (0-based). Can be negative, in which case the
 '               | Index is calculated from the end of the string working backwards
 '---------------¦----------------------------------------------------------------------
-'Returns        | A Unicode character point (0 to 65535)
+'Returns        | A Unicode character point (signed-Integer)
 '======================================================================================
 Public Function CharRemove( _
     Optional ByVal Index As Long = 0 _
-) As UCS2
+) As Integer
     'Check the character index is within range, _
      a negative Index will work backwards from the end of the string
     If Not my_ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Function
@@ -889,7 +902,7 @@ End Function
 '---------------¦----------------------------------------------------------------------
 'Returns        | True if strings are equal, False if not
 '======================================================================================
-Public Function Equals( _
+Public Function equals( _
     ByRef Text As String _
 ) As Boolean
     'Any length difference is immediately invalid!
@@ -898,10 +911,10 @@ Public Function Equals( _
     'Handle null strings: _
      Two null strings are considered equal, otherwise result is inequal
     If My_Length = 0 Then
-        Let Equals = (LenB(Text) = 0)
+        Let equals = (LenB(Text) = 0)
         Exit Function
     ElseIf LenB(Text) = 0 Then
-        Let Equals = (My_Length = 0)
+        Let equals = (My_Length = 0)
         Exit Function
     End If
     
@@ -911,31 +924,31 @@ Public Function Equals( _
         'Check for Windows XP; this is faster to do because it's a zero comparison
         If blu.sys.WindowsAPILevel = XP_OR_LOWER Then
             'Fall back to the XP-compatible API
-            Let Equals = (Win32.StringCompare_NT5( _
+            Let equals = (Win32.StringCompare_NT5( _
                       LocaleID:=Win32.ThreadLocale, _
                   CompareFlags:=w32IgnoreCase, _
                 String1Pointer:=StrPtr(Text), String1Length:=-1, _
                 String2Pointer:=VarPtr(Chars(0)), String2Length:=-1 _
-            ) = Win32.StringCompareResult.w32Equal)
+            ) = w32Equal)
         Else
             'NOTE: The use of null on the first parameter causes Windows to use the _
              user's current locale, so we don't need to manually fetch the locale name
-            Let Equals = (Win32.StringCompare_NT6( _
+            Let equals = (Win32.StringCompare_NT6( _
                  LocaleNamePointer:=0&, _
                       CompareFlags:=w32IgnoreCaseLinguistic, _
                     String1Pointer:=StrPtr(Text), String1Length:=-1, _
                     String2Pointer:=VarPtr(Chars(0)), String2Length:=-1 _
-                 ) = Win32.StringCompareResult.w32Equal)
+                 ) = w32Equal)
         End If
     
     'Case-sensitive (binary) comparison
     '..................................................................................
     Else
-        Let Equals = (Win32.StringCompareBinary( _
+        Let equals = (Win32.StringCompareBinary( _
             String1Pointer:=StrPtr(Text), String1Length:=-1, _
             String2Pointer:=VarPtr(Chars(0)), String2Length:=-1, _
                 IgnoreCase:=BOOL_FALSE _
-        ) = Win32.StringCompareResult.w32Equal)
+        ) = w32Equal)
     End If
 End Function
 
@@ -1159,7 +1172,8 @@ End Function
 '======================================================================================
 'Returns        | This class object (method chaining)
 '======================================================================================
-Public Function LCase() As bluString
+Public Function LCase( _
+) As bluString
     'Allow method chaining
     Set LCase = Me
     'Nullstring won't change!
@@ -1267,9 +1281,307 @@ End Property
 
 'LengthBytes : Length of the content in bytes, cannot be set
 '======================================================================================
-Public Property Get LengthBytes() As Long
+Public Property Get LengthBytes( _
+) As Long
     Let LengthBytes = My_LengthB
 End Property
+
+'Load : Load text from a file
+'======================================================================================
+Public Function Load( _
+    ByRef FilePath As String _
+) As Long
+    'Clear any existing string
+    Call Me.Clear
+    
+    'Use the Windows API to access the file, _
+     this avoids VB's slow and unwieldy error handling
+    Dim FileHandle As Long
+    Let FileHandle = Win32.FileOpen( _
+            FilepathPointer:=StrPtr(FilePath), _
+              DesiredAccess:=GENERIC_READ, _
+                  ShareMode:=FILE_SHARE_READ, _
+         SecurityAttributes:=0&, _
+        CreationDisposition:=OPEN_EXISTING, _
+         FlagsAndAttributes:=FILE_FLAGS.FILE_ATTRIBUTE_NORMAL _
+                          Or FILE_FLAGS.FILE_FLAG_SEQUENTIAL_SCAN _
+    )
+    
+    If FileHandle = -1 Then
+        Stop
+        Exit Function
+    End If
+    
+    'Get the file size using the Windows API
+    Dim FileSize As Currency
+    If api_GetFileSizeEx(FileHandle, FileSize) = BOOL_FALSE Then
+        Call Win32.FileClose(FileHandle)
+        Stop
+        Exit Function
+    End If
+    
+    'The Currency type has two decimal places, so push this up to whole bytes
+    Let FileSize = FileSize * 10000
+    
+    'Is the file too big?
+    'Note that we cannot open a file larger than 2 GB as we will be walking _
+     the buffer using a signed Long which will go negative above 2 Billion
+    If FileSize > FILE_MAX Then
+        Call Win32.FileClose(FileHandle)
+        Stop
+        Exit Function
+    End If
+    
+    'For speed, use a Long instead of a Currency
+    Dim FileLength As Long
+    Let FileLength = FileSize
+    
+    Dim FileBuffer() As Byte
+    ReDim FileBuffer(0 To FileLength) As Byte
+    
+    Call api_ReadFile( _
+           FileHandle:=FileHandle, _
+        BufferPointer:=VarPtr(FileBuffer(0)), _
+  NumberOfBytesToRead:=FileLength, _
+    NumberOfBytesRead:=FileLength, _
+    OverlappedPointer:=0& _
+    )
+    
+    Call Win32.FileClose(FileHandle)
+    
+    '----------------------------------------------------------------------------------
+    
+    Let Me.Buffer = FileLength
+
+'    'Check for a Byte-Order-Mark:
+'    '----------------------------------------------------------------------------------
+'    'Not many files have a Byte-Order-Mark that specifies the file encoding, _
+'     but if it is there it makes life a lot easier
+'    Dim Encoding As blu_FileEncoding
+'
+'    'Read the first four bytes:
+'    'TODO: Check the file is even four bytes long!
+'    Dim BOM(1 To 4) As Byte
+'    Get #FileNumber, , BOM()
+'
+'    ' FF FE         UTF-16, little endian
+'    ' FE FF         UTF-16, big endian
+'    ' EF BB BF      UTF-8
+'    ' FF FE 00 00   UTF-32, little endian
+'    ' 00 00 FE FF   UTF-32, big-endian
+'
+'    'Check for either UTF-16 Little Endian or UTF32 Little Endian
+'    If BOM(1) = &HFF Then
+'        'In both cases the second byte must be $FE
+'        If BOM(2) = &HFE Then
+'            'If UTF-32 there will be two nulls indicating a 4-byte character
+'            If (BOM(3) = 0) And (BOM(4) = 0) _
+'                Then Let Encoding = UTF32_LE _
+'                Else Let Encoding = UTF16_LE
+'        End If
+'    'UTF-16 Big Endian begins with the $FE byte
+'    ElseIf BOM(1) = &HFE Then
+'        'Verify that the second byte is $FF
+'        If BOM(2) = &HFF Then Let Encoding = UTF16_BE
+'    'Look for the UTF-8 three-byte sequence
+'    ElseIf BOM(1) = &HEF Then
+'        'Note that UTF-8 is neither Little or Big Endian
+'        If (BOM(2) = &HBB) And (BOM(3) = &HBF) Then Let Encoding = UTF8
+'    'Nulls first could be a Big Endian UTF-32 file
+'    ElseIf BOM(1) = 0 Then
+'        'Check the next three bytes for the unique pattern
+'        If (BOM(2) = 0) And (BOM(3) = &HFE) And (BOM(4) = &HFF) _
+'            Then Let Encoding = UTF32_BE
+'    End If
+
+    'Walk, validate and convert:
+    '-----------------------------------------------------------------------------------
+    Dim i As Long
+    'When parsing ASCII/UTF-8, bytes above 127 will be treated as ANSI _
+     (Windows 1252 code-page) if invalid as a UTF-8 sequence
+    Dim Windows1252ToUTF16(0 To &HFF) As Integer
+    'Up to $80, ANSI is the same as ASCII
+    For i = 0 To &H7F&: Let Windows1252ToUTF16(i) = i: Next i
+    'These mappings were produced with the help of _
+     <lingua-systems.com/unicode-converter/unicode-mappings/encode-windows-1252-to-utf-8-unicode.html>
+    'NOTE: For undefined points, the Unicode Replacement Character is suplimented _
+     so as not to leave a Null in our string which may break API calls using it
+    Let Windows1252ToUTF16(&H80&) = &H20AC      ' €   EURO SIGN
+    Let Windows1252ToUTF16(&H81&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
+    Let Windows1252ToUTF16(&H82&) = &H201A      ' ‚   SINGLE LOW-9 QUOTATION MARK
+    Let Windows1252ToUTF16(&H83&) = &H192       ' ƒ   LATIN SMALL LETTER F WITH HOOK
+    Let Windows1252ToUTF16(&H84&) = &H201E      ' „   DOUBLE LOW-9 QUOTATION MARK
+    Let Windows1252ToUTF16(&H85&) = &H2026      ' …   HORIZONTAL ELLIPSIS
+    Let Windows1252ToUTF16(&H86&) = &H2020      ' †   DAGGER
+    Let Windows1252ToUTF16(&H87&) = &H2021      ' ‡   DOUBLE DAGGER
+    Let Windows1252ToUTF16(&H88&) = &H2C6       ' ˆ   MODIFIER LETTER CIRCUMFLEX ACCENT
+    Let Windows1252ToUTF16(&H89&) = &H2030      ' ‰   PER MILLE SIGN
+    Let Windows1252ToUTF16(&H8A&) = &H160       ' Š   LATIN CAPITAL LETTER S WITH CARON
+    Let Windows1252ToUTF16(&H8B&) = &H2039      ' ‹   SINGLE LEFT-POINTING ANGLE QUOTATION MARK
+    Let Windows1252ToUTF16(&H8C&) = &H152       ' Œ   LATIN CAPITAL LIGATURE OE
+    Let Windows1252ToUTF16(&H8D&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
+    Let Windows1252ToUTF16(&H8E&) = &H17D       ' Ž   LATIN CAPITAL LETTER Z WITH CARON
+    Let Windows1252ToUTF16(&H8F&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
+    Let Windows1252ToUTF16(&H90&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
+    Let Windows1252ToUTF16(&H91&) = &H2018      ' ‘   LEFT SINGLE QUOTATION MARK
+    Let Windows1252ToUTF16(&H92&) = &H2019      ' ’   RIGHT SINGLE QUOTATION MARK
+    Let Windows1252ToUTF16(&H93&) = &H201C      ' “   LEFT DOUBLE QUOTATION MARK
+    Let Windows1252ToUTF16(&H94&) = &H201D      ' ”   RIGHT DOUBLE QUOTATION MARK
+    Let Windows1252ToUTF16(&H95&) = &H2022      ' •   BULLET
+    Let Windows1252ToUTF16(&H96&) = &H2013      ' –   EN DASH
+    Let Windows1252ToUTF16(&H97&) = &H2014      ' —   EM DASH
+    Let Windows1252ToUTF16(&H98&) = &H20DC      ' ˜    SMALL TILDE
+    Let Windows1252ToUTF16(&H99&) = &H2122      ' ™   TRADE MARK SIGN
+    Let Windows1252ToUTF16(&H9A&) = &H161       ' š   LATIN SMALL LETTER S WITH CARON
+    Let Windows1252ToUTF16(&H9B&) = &H203A      ' ›   SINGLE RIGHT-POINTING ANGLE QUOTATION MARK
+    Let Windows1252ToUTF16(&H9C&) = &H153       ' œ   LATIN SMALL LIGATURE OE
+    Let Windows1252ToUTF16(&H9D&) = &HFFFD      ' ?   REPLACEMENT CHARACTER
+    Let Windows1252ToUTF16(&H9E&) = &H17E       ' ž   LATIN SMALL LETTER Z WITH CARON
+    Let Windows1252ToUTF16(&H9F&) = &H178       ' Ÿ   LATIN CAPITAL LETTER Y WITH DIAERESIS
+    'Only points $80 to $9F differ from standard Unicode points
+    For i = &HA0& To &HFF&: Let Windows1252ToUTF16(i) = i: Next i
+
+'    Dim CodePoint(1 To 4) As Byte
+'    Dim CodePoint8 As Byte
+'    Dim CodePoint16 As Integer
+'    Dim CodePoint32 As Long
+'
+'    'For UTF-32 we only need to split the surrogate pairs
+'    '..................................................................................
+'    If Encoding = UTF32_LE Then
+'        Do While VBA.EOF(FileNumber) = True
+'            'Read the full four bytes
+'            Get #FileNumber, , CodePoint32
+'            'If the upper 2 bytes are 0, then the code point is 16-bits only
+'            If (CodePoint32 \ &H10000) = 0 Then
+'                'Add as-is to our string
+'                Call Win32.MoveMemory( _
+'                    OutputPointer:=Data(i), _
+'                    SourcePointer:=VarPtr(CodePoint32), _
+'                      LengthBytes:=2 _
+'                )
+'                Let i = i + 1
+'
+'            'If a full 32-bit value, then it needs to be converted to a pair of UTF-16 _
+'             characters using the low/high surrogate characters (D8xx & DCxx)
+'            Else
+'
+'                Stop
+'            End If
+'        Loop
+'
+'    End If
+
+UTF8:
+    '----------------------------------------------------------------------------------
+    '<vovisoft.com/unicode/unifunctions.htm#ToUTF16>
+    '<rsdn.ru/forum/vb/2316535.1>
+    
+    'It's not possible for a UTF-8 file to have more characters than it has bytes, _
+     so we can set the number of characters in our string to match (at least) the _
+     number of bytes in the file. After the file is parsed, the buffer will be cut _
+     down to the final number of characters
+    
+    Dim Byte1 As Byte, Byte2 As Byte, Byte3 As Byte
+    Dim b As Long
+    
+    Let i = 0
+    Do
+        'Read one byte to begin with
+        Let Byte1 = FileBuffer(b): Let b = b + 1
+        
+        If Byte1 = 0 Then
+            '
+            
+        'If this is <128 then it's the same in ASCII/ANSI/UTF-8
+        '..............................................................................
+        ElseIf (Byte1 And &H80) = 0 Then
+            'Add it to our string, and continue
+            Let Chars(i) = Byte1
+            Let i = i + 1
+            
+        'UTF-8 byte sequences will begin with either "110?????" ($C0-$DF), _
+         "1110????" ($E0-$EF) or "11110???" ($F0-$F7). Therefore bytes between $80 _
+         and $9F will be treated as ANSI and converted from the Windows-1252 code-page
+        '..............................................................................
+        'This will test that the top three bits are "100?????" ($80-$9F)
+        ElseIf (Byte1 And &HE0&) = &H80& Then
+            Let Chars(i) = Windows1252ToUTF16(Byte1)
+            Let i = i + 1
+            
+        'Is this a 2-byte UTF-8 sequence? _
+         (check that the top three bits are "110?????")
+        '..............................................................................
+        ElseIf (Byte1 And &HE0&) = &HC0& Then
+            'Fetch another byte to see if this is a UTF-8 sequence
+            Let Byte2 = FileBuffer(b): Let b = b + 1
+            
+            'The bytes in a UTF-8 sequence must be in the form "10??????"
+            If (Byte2 And &HC0&) = &H80& Then
+                'Decode the two UTF-8 bytes into a Unicode point
+                Let Chars(i) = (Byte1 And &H1F) * &H40& + (Byte2 And &H3F&)
+                Let i = i + 1
+            Else
+                'The second byte is not part of a UTF-8 sequence, _
+                 the first byte is above 127 so has to be treated as ANSI
+                Let Chars(i) = Windows1252ToUTF16(Byte1)
+                Let i = i + 1
+                'The second byte could be either ASCII or ANSI, but our conversion _
+                 table keeps the ASCII bytes the same anyway
+                Let Chars(i) = Windows1252ToUTF16(Byte2)
+                Let i = i + 1
+            End If
+            
+        'Is this a 3-byte UTF-8 sequence? _
+         (check that the top four bits are "1110????")
+        '..............................................................................
+        ElseIf (Byte1 And &HF0&) = &HE0& Then
+            'Fetch another byte to see if this is a UTF-8 sequence
+            Let Byte2 = FileBuffer(b): Let b = b + 1
+            
+            'The bytes in a UTF-8 sequence must be in the form "10??????"
+            If (Byte2 And &HC0&) = &H80& Then
+                'Get the third byte
+                Let Byte3 = FileBuffer(b): Let b = b + 1
+                
+                'Check that this too follows the correct form "10??????"
+                If (Byte2 And &HC0&) = &H80& Then
+                    'Decode the three UTF-8 bytes into a Unicode point
+                    Let Chars(i) = (Byte1 And &HF&) * &H1000 _
+                                 + (Byte2 And &H3F&) * &H40 _
+                                 + (Byte3 And &H3F&)
+                    Let i = i + 1
+                Else
+                    'Not a valid UTF-8 sequence, treat all three bytes as ASCII/ANSI
+                    Let Chars(i) = Windows1252ToUTF16(Byte1): Let i = i + 1
+                    Let Chars(i) = Windows1252ToUTF16(Byte2): Let i = i + 1
+                    Let Chars(i) = Windows1252ToUTF16(Byte3): Let i = i + 1
+                End If
+            Else
+                'The second byte is not part of a UTF-8 sequence, _
+                 the first byte is above 127 so has to be treated as ANSI
+                Let Chars(i) = Windows1252ToUTF16(Byte1)
+                Let i = i + 1
+                'The second byte could be either ASCII or ANSI, but our conversion _
+                 table keeps the ASCII bytes the same anyway
+                Let Chars(i) = Windows1252ToUTF16(Byte2)
+                Let i = i + 1
+            End If
+            
+        'Not a plausible UTF-8 sequence byte, treat as ANSI
+        Else
+            Let Chars(i) = Windows1252ToUTF16(Byte1)
+            Let i = i + 1
+        End If
+    Loop While b <= FileLength
+    
+    Call my_SetLength(i)
+    
+    'Clean up the small conversion table
+    Erase Windows1252ToUTF16
+    
+Finish:
+End Function
 
 'Mid : Reduce the string to a sub-string portion
 '======================================================================================
@@ -1640,11 +1952,11 @@ Public Function SplitWords( _
     
     'Call the Windows API; this will convert each character of our string _
      into a bit-pattern of its Unicode properties (see the `C1` enum)
-    Call api_GetStringType( _
-                   InfoType:=CT_CTYPE1, _
-        SourceStringPointer:=VarPtr(Chars(0)), _
-         SourceStringLength:=My_Length, _
-            CharTypePointer:=VarPtr(Whitespace(0)) _
+    Call Win32.StringUnicodeInfo( _
+                   InfoType:=w32CharType, _
+              StringPointer:=VarPtr(Chars(0)), _
+               StringLength:=My_Length, _
+    ResultArrayFirstElement:=Whitespace(0) _
     )
     
     '----------------------------------------------------------------------------------
@@ -1775,7 +2087,8 @@ End Property
 '======================================================================================
 'Returns        | This class object (method chaining)
 '======================================================================================
-Public Function TrimBuffer() As bluString
+Public Function TrimBuffer( _
+) As bluString
     'Of course you could just use `bluString.Buffer = bluString.Length`, but this is _
      intended to be more obvious and safer for potential future changes / expansion. _
      It's strongly advised NOT to expand the string after you've reduced the buffer
@@ -1891,7 +2204,7 @@ Public Function TrimToNull( _
     
     'We now clip our string to fit the length given by the first Null found
     Call my_SetLength( _
-        api_lstrlen(VarPtr(Chars(0))) _
+        Win32.StringLengthUpToNull(VarPtr(Chars(0))) _
     )
 End Function
 
@@ -1976,11 +2289,11 @@ Public Function Truncate( _
     'Call the Windows API to fetch the Unicode character properties
     'TODO: Handle API errors
     Dim CharProps(0 To 14) As Integer
-    Call api_GetStringType( _
-                   InfoType:=CT_CTYPE1, _
-        SourceStringPointer:=VarPtr(Chars(PropsIndex)), _
-         SourceStringLength:=PropsLength, _
-            CharTypePointer:=VarPtr(CharProps(0)) _
+    Call Win32.StringUnicodeInfo( _
+                   InfoType:=w32CharType, _
+              StringPointer:=VarPtr(Chars(PropsIndex)), _
+               StringLength:=PropsLength, _
+    ResultArrayFirstElement:=CharProps(0) _
     )
     
     'Now walk backwards from the truncation point
@@ -2026,7 +2339,8 @@ End Function
 '======================================================================================
 'Returns        | This class object (method chaining)
 '======================================================================================
-Public Function UCase() As bluString
+Public Function UCase( _
+) As bluString
     'Allow method chaining
     Set UCase = Me
     'Nullstring won't change!

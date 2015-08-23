@@ -118,10 +118,18 @@ Private Sub Class_Initialize()
     Dim i As Long
     
     'Create the lookup table of Unicode character properties
-    For i = -32768 To 32767: Let My_UnicodeProperties(i) = i: Next i
-    For i = 32768 To 65535: Let My_UnicodeProperties(i) = i - 65535: Next i
+    Dim Unicode(-32768 To 65535) As Integer
+    For i = -32768 To 32767: Let Unicode(i) = i: Next i
+    For i = 32768 To 65535: Let Unicode(i) = i - 65535: Next i
+    
+    Call W32TLB.StringUnicodeInfo( _
+                       InfoType:=w32CharType, _
+                  StringPointer:=VarPtr(Unicode(-32768)), _
+                   StringLength:=98303, _
+        ResultArrayFirstElement:=My_UnicodeProperties(-32768) _
+    )
     'Lock the array so that once externally accessed, it can't be redimmed or erased
-    Call Win32.ArrayLockAdd(ArrPtr(My_UnicodeProperties))
+    Call W32TLB.ArrayLockAdd(ArrPtr(My_UnicodeProperties))
 End Sub
 
 'CLASS Terminate
@@ -129,7 +137,7 @@ End Sub
 Private Sub Class_Terminate()
     'Unlock the Unicode character properties lookup table; _
      since it's pre-dimmed, `Erase` will only zero it so leave it to drop out of scope
-    Call Win32.ArrayLockRemove(ArrPtr(My_UnicodeProperties))
+    Call W32TLB.ArrayLockRemove(ArrPtr(My_UnicodeProperties))
 End Sub
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
@@ -143,21 +151,21 @@ Public Function CompareText( _
     'Check for Windows XP:
     If blu.sys.WindowsAPILevel = XP_OR_LOWER Then
         'Fall back to the XP-compatible API
-        Let CompareText = (Win32.StringCompare_NT5( _
-                  LocaleID:=Win32.ThreadLocale, _
+        Let CompareText = (W32.StringCompare_NT5( _
+                  LocaleID:=W32.GetThreadLocale, _
               CompareFlags:=w32IgnoreCase, _
             String1Pointer:=StrPtr(String1), String1Length:=-1, _
             String2Pointer:=StrPtr(String2), String2Length:=-1 _
-        ) = Win32.StringCompareResult.w32Equal)
+        ) = W32TLB.StringCompareResult.w32Equal)
     Else
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
-        Let CompareText = (Win32.StringCompare_NT6( _
+        Let CompareText = (W32.StringCompare_NT6( _
              LocaleNamePointer:=0&, _
                   CompareFlags:=w32IgnoreCaseLinguistic, _
                 String1Pointer:=StrPtr(String1), String1Length:=-1, _
                 String2Pointer:=StrPtr(String2), String2Length:=-1 _
-        ) = Win32.StringCompareResult.w32Equal)
+        ) = W32TLB.StringCompareResult.w32Equal)
     End If
 End Function
 
@@ -206,7 +214,7 @@ Public Function FormatText( _
     
     'Prepate the output buffer (using the TLB-API here is faster than `Space$`!). _
      The string will currently contain garbage from previously used memory
-    Let FormatText = Win32.StringCreateUninitialized(ByVal 0&, OutputLength)
+    Let FormatText = W32TLB.StringCreateUninitialized(ByVal 0&, OutputLength)
     
     'cache a bunch of stuff we're going to need
     Dim OutputPtr As Long
@@ -231,13 +239,13 @@ Public Function FormatText( _
         '..............................................................................
         If Align = vbLeftJustify Then
             'Write the ellipsis on the right hand side
-            Call Win32.MemoryCopyWithin( _
+            Call W32TLB.MemCopy( _
                 OutputPointer:=OutputPtr + OutputLengthBytes - EllipsisLen, _
                 SourcePointer:=EllipsisPtr, _
                   LengthBytes:=EllipsisPtr _
             )
             'Fill the remainder with the input text
-            Call Win32.MemoryCopyWithin( _
+            Call W32TLB.MemCopy( _
                 OutputPointer:=OutputPtr, _
                 SourcePointer:=SourcePtr, _
                   LengthBytes:=OutputLengthBytes - EllipsisLen _
@@ -248,17 +256,17 @@ Public Function FormatText( _
         '..............................................................................
         ElseIf Align = vbRightJustify Then
             'Write the ellipsis on the left hand side
-            Call Win32.MemoryCopyBetween( _
-                  LengthBytes:=EllipsisLen, _
+            Call W32TLB.MemCopy( _
                 OutputPointer:=OutputPtr, _
-                SourcePointer:=EllipsisLen _
+                SourcePointer:=EllipsisLen, _
+                  LengthBytes:=EllipsisLen _
             )
             'Fill the remainder with the input text (right aligned)
-            Call Win32.MemoryCopyBetween( _
-                  LengthBytes:=OutputLengthBytes - EllipsisLen, _
+            Call W32TLB.MemCopy( _
                 OutputPointer:=(OutputPtr + EllipsisLen), _
                 SourcePointer:=(SourcePtr + SourceLen) _
-                              - OutputLengthBytes - EllipsisLen _
+                              - OutputLengthBytes - EllipsisLen, _
+                  LengthBytes:=OutputLengthBytes - EllipsisLen _
             )
         
         '..............................................................................
@@ -279,36 +287,36 @@ Public Function FormatText( _
         
         'We prepare the first two characters (32-bits), _
          as the memory copy will walk one Long at a time
-        Let Win32.MemInteger(OutputPtr) = AscW(FillChar)
-        Let Win32.MemInteger(OutputPtr + 2) = AscW(FillChar)
+        Let W32TLB.MemInteger(OutputPtr) = AscW(FillChar)
+        Let W32TLB.MemInteger(OutputPtr + 2) = AscW(FillChar)
         
         'We do a memory copy within the same buffer (notice we are using our API that _
          *should* be used for copying between different buffers -- it doesn't check _
          for overlapped copies); this copies the previous four bytes to the next four _
          bytes, all the way down the string
-        Call Win32.MemoryCopyBetween( _
-              LengthBytes:=OutputLengthBytes - 4, _
+        Call W32TLB.MemCopyOverlap( _
             OutputPointer:=OutputPtr + 4, _
-            SourcePointer:=OutputPtr _
+            SourcePointer:=OutputPtr, _
+              LengthBytes:=OutputLengthBytes - 4 _
         )
         
         'Select the text alignment:
         '..............................................................................
         If Align = vbLeftJustify Then
             'Place the text on the left
-            Call Win32.MemoryCopyBetween( _
-                  LengthBytes:=SourceLen, _
+            Call W32TLB.MemCopy( _
                 OutputPointer:=OutputPtr, _
-                SourcePointer:=SourcePtr _
+                SourcePointer:=SourcePtr, _
+                  LengthBytes:=SourceLen _
             )
             
         '..............................................................................
         ElseIf Align = vbRightJustify Then
             'Place the text on the right
-            Call Win32.MemoryCopyBetween( _
-                  LengthBytes:=SourceLen, _
+            Call W32TLB.MemCopy( _
                 OutputPointer:=OutputPtr + (OutputLengthBytes - SourceLen), _
-                SourcePointer:=SourcePtr _
+                SourcePointer:=SourcePtr, _
+                  LengthBytes:=SourceLen _
             )
             
         '..............................................................................

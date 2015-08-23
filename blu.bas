@@ -67,7 +67,7 @@ Public Function CommandParams() As String()
             'This is a null-terminated string and we _
              won't know the length until we count
             Dim CommandStrLen As Long
-            Let CommandStrLen = Win32.StringLengthUpToNull(CommandStrPtr)
+            Let CommandStrLen = W32TLB.StringLengthUpToNull(CommandStrPtr)
             
             If CommandStrLen <> 0 Then
                 Let CommandStr.Length = CommandStrLen

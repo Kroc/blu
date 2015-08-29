@@ -79,12 +79,12 @@ Public Sub LogFormat( _
     If LenB(My_FilePath) <> 0 Then
         'TODO: Replace with API methods
     
-        Dim FileNumber As Long
-        Let FileNumber = FreeFile
-        
-        Open My_FilePath For Append Lock Write As #FileNumber
-            Print #FileNumber, Text
-        Close #FileNumber
+'        Dim FileNumber As Long
+'        Let FileNumber = FreeFile
+'
+'        Open My_FilePath For Append Lock Write As #FileNumber
+'            Print #FileNumber, Text
+'        Close #FileNumber
     End If
 End Sub
 
@@ -98,12 +98,12 @@ Public Sub Log( _
     If LenB(My_FilePath) <> 0 Then
         'TODO: Replace with API methods
     
-        Dim FileNumber As Long
-        Let FileNumber = FreeFile
-        
-        Open My_FilePath For Append Lock Write As #FileNumber
-            Print #FileNumber, Text
-        Close #FileNumber
+'        Dim FileNumber As Long
+'        Let FileNumber = FreeFile
+'
+'        Open My_FilePath For Append Lock Write As #FileNumber
+'            Print #FileNumber, Text
+'        Close #FileNumber
     End If
 End Sub
 

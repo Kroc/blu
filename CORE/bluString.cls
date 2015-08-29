@@ -19,8 +19,8 @@ Option Explicit
 '======================================================================================
 'CLASS :: bluString
 
-'Last Updated       23-AUG-15
-'Last Update        *   Partially implemented whitespace normalisation in `Load`
+'Last Updated       29-AUG-15
+'Last Update        *   Fixed `CharArrayUnaccess`
 
 'Always get the latest version of this file at <github.com/Kroc/blu>. _
  Feedback can be sent to <kroc@camendesign.com>
@@ -448,7 +448,10 @@ Public Sub CharArrayUnaccess( _
     'Is this our array? (Don't let the user unlock any old array!)
     If W32TLB.ArrPtr(CharArray) <> W32TLB.ArrPtr(Chars) Then
         'ERROR: "Invalid Procedure Call or Argument"
-        Call Err.Raise(5, , "bluString.CharArrayUnaccess: The array passed is not the same as was retrieved from `CharArrayAccess`")
+        Call Err.Raise(5, , _
+            "bluString.CharArrayUnaccess: The array passed is not the same as was " _
+          & "retrieved from `CharArrayAccess`" _
+        )
         Exit Sub
     End If
     
@@ -458,7 +461,7 @@ Public Sub CharArrayUnaccess( _
     
     'Detach the array variable from its array structure (`SAFEARRAY`). _
      The passed array will become uninitialised
-    Let MemLong(W32TLB.VarPtr_Array(Chars)) = 0
+    Let MemLong(W32TLB.VarPtr_Array(CharArray)) = 0
 End Sub
 
 'CharInsert : Inserts a single Unicode character code
@@ -1470,6 +1473,10 @@ UTF8:
     Dim Byte1 As Byte, Byte2 As Byte, Byte3 As Byte
     Dim b As Long
     
+    'When multiple UTF-8 bytes combine into one Unicode character, _
+     we'll put the result here so we can check its Unicode properties
+    Dim Char As Integer
+    
     Let i = 0
     Do
         'Read one byte to begin with
@@ -1537,8 +1544,8 @@ UTF8:
             'The bytes in a UTF-8 sequence must be in the form "10??????"
             If (Byte2 And &HC0&) = &H80& Then
                 'Decode the two UTF-8 bytes into a Unicode point
-                Let Chars(i) = (Byte1 And &H1F) * &H40& + (Byte2 And &H3F&)
-                Let i = i + 1
+                Let Char = (Byte1 And &H1F) * &H40& + (Byte2 And &H3F&)
+                Let Chars(i) = Char: Let i = i + 1
             Else
                 'The second byte is not part of a UTF-8 sequence, _
                  the first byte is above 127 so has to be treated as ANSI
@@ -1565,10 +1572,10 @@ UTF8:
                 'Check that this too follows the correct form "10??????"
                 If (Byte2 And &HC0&) = &H80& Then
                     'Decode the three UTF-8 bytes into a Unicode point
-                    Let Chars(i) = (Byte1 And &HF&) * &H1000 _
-                                 + (Byte2 And &H3F&) * &H40 _
-                                 + (Byte3 And &H3F&)
-                    Let i = i + 1
+                    Let Char = (Byte1 And &HF&) * &H1000 _
+                             + (Byte2 And &H3F&) * &H40 _
+                             + (Byte3 And &H3F&)
+                    Let Chars(i) = Char: Let i = i + 1
                 Else
                     'Not a valid UTF-8 sequence, treat all three bytes as ASCII/ANSI
                     Let Chars(i) = Windows1252ToUTF16(Byte1): Let i = i + 1

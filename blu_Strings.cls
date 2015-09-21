@@ -19,9 +19,9 @@ Option Explicit
 '======================================================================================
 'CLASS :: blu_Strings
 
-'Last Updated       24-JUL-15
-'Last Update        *   Moved APIs to the type library
-'                   *   Added `UnicodeProperties` lookup table
+'Last Updated       21-SEP-15
+'Last Update        *   Fixed pointer crash with `FormatText`!
+'                   *   Added a `Wrap` method
 
 '/// CLASS ////////////////////////////////////////////////////////////////////////////
 
@@ -242,7 +242,7 @@ Public Function FormatText( _
             Call W32TLB.MemCopy( _
                 OutputPointer:=OutputPtr + OutputLengthBytes - EllipsisLen, _
                 SourcePointer:=EllipsisPtr, _
-                  LengthBytes:=EllipsisPtr _
+                  LengthBytes:=EllipsisLen _
             )
             'Fill the remainder with the input text
             Call W32TLB.MemCopy( _
@@ -333,3 +333,51 @@ Public Property Get UnicodeProperties( _
 ) As Integer()
     Let UnicodeProperties = My_UnicodeProperties
 End Property
+
+'Wrap : Append & Prepend a string, e.g. for adding quotes around text
+'======================================================================================
+'Source         | Input string to be wrapped
+'Before         | String to prepend
+'[After]        | String to append. If ommitted, defaults to Before
+'---------------¦----------------------------------------------------------------------
+'Returns        | The original string, if unmodified, otherwise a new string
+'======================================================================================
+Public Function Wrap( _
+             ByRef Source As String, _
+             ByRef Before As String, _
+    Optional ByRef After As String = vbNullString _
+) As String
+    'If the second param is ommitted, use the same string for both ends
+    If LenB(After) = 0 Then Let After = Before
+    
+    'Caching
+    Dim BeforeLenB As Long, AfterLenB As Long
+    Let BeforeLenB = LenB(Before)
+    Let AfterLenB = LenB(After)
+    
+    'If both before and after are null, nothing will happen!
+    If (BeforeLenB Or AfterLenB) = 0 Then
+        Let Wrap = Source
+        Exit Function
+    End If
+    
+    Dim SourceLenB As Long
+    Let SourceLenB = LenB(Source)
+    
+    'Assign a new string of the right length
+    Let Wrap = W32TLB.StringCreateUninitialized(ByVal 0&, _
+        (BeforeLenB + SourceLenB + AfterLenB) * 2 _
+    )
+    
+    Dim OutputPtr As Long
+    Let OutputPtr = StrPtr(Wrap)
+    
+    'TODO: Handle vbNullString
+    
+    'Copy in the before portion
+    Call W32TLB.MemCopy(OutputPtr, StrPtr(Before), BeforeLenB)
+    'Copy the source string
+    Call W32TLB.MemCopy(OutputPtr + BeforeLenB, StrPtr(Source), SourceLenB)
+    'Copy in the after portion
+    Call W32TLB.MemCopy(OutputPtr + BeforeLenB + SourceLenB, StrPtr(After), AfterLenB)
+End Function

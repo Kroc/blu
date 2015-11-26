@@ -122,14 +122,14 @@ Private Sub Class_Initialize()
     For i = -32768 To 32767: Let Unicode(i) = i: Next i
     For i = 32768 To 65535: Let Unicode(i) = i - 65535: Next i
     
-    Call W32TLB.StringUnicodeInfo( _
+    Call bluW32.StringUnicodeInfo( _
                        InfoType:=w32CharType, _
                   StringPointer:=VarPtr(Unicode(-32768)), _
                    StringLength:=98303, _
         ResultArrayFirstElement:=My_UnicodeProperties(-32768) _
     )
     'Lock the array so that once externally accessed, it can't be redimmed or erased
-    Call W32TLB.ArrayLockAdd(ArrPtr(My_UnicodeProperties))
+    Call bluW32.ArrayLockAdd(ArrPtr(My_UnicodeProperties))
 End Sub
 
 'CLASS Terminate
@@ -137,7 +137,7 @@ End Sub
 Private Sub Class_Terminate()
     'Unlock the Unicode character properties lookup table; _
      since it's pre-dimmed, `Erase` will only zero it so leave it to drop out of scope
-    Call W32TLB.ArrayLockRemove(ArrPtr(My_UnicodeProperties))
+    Call bluW32.ArrayLockRemove(ArrPtr(My_UnicodeProperties))
 End Sub
 
 '/// PUBLIC INTERFACE /////////////////////////////////////////////////////////////////
@@ -156,7 +156,7 @@ Public Function CompareText( _
               CompareFlags:=w32IgnoreCase, _
             String1Pointer:=StrPtr(String1), String1Length:=-1, _
             String2Pointer:=StrPtr(String2), String2Length:=-1 _
-        ) = W32TLB.StringCompareResult.w32Equal)
+        ) = bluW32.StringCompareResult.w32Equal)
     Else
         'NOTE: The use of null on the first parameter causes Windows to use the _
          user's current locale, so we don't need to manually fetch the locale name
@@ -165,7 +165,7 @@ Public Function CompareText( _
                   CompareFlags:=w32IgnoreCaseLinguistic, _
                 String1Pointer:=StrPtr(String1), String1Length:=-1, _
                 String2Pointer:=StrPtr(String2), String2Length:=-1 _
-        ) = W32TLB.StringCompareResult.w32Equal)
+        ) = bluW32.StringCompareResult.w32Equal)
     End If
 End Function
 
@@ -214,7 +214,7 @@ Public Function FormatText( _
     
     'Prepate the output buffer (using the TLB-API here is faster than `Space$`!). _
      The string will currently contain garbage from previously used memory
-    Let FormatText = W32TLB.StringCreateUninitialized(ByVal 0&, OutputLength)
+    Let FormatText = bluW32.StringCreateUninitialized(ByVal 0&, OutputLength)
     
     'cache a bunch of stuff we're going to need
     Dim OutputPtr As Long
@@ -239,13 +239,13 @@ Public Function FormatText( _
         '..............................................................................
         If Align = vbLeftJustify Then
             'Write the ellipsis on the right hand side
-            Call W32TLB.MemCopy( _
+            Call bluW32.MemCopy( _
                 OutputPointer:=OutputPtr + OutputLengthBytes - EllipsisLen, _
                 SourcePointer:=EllipsisPtr, _
                   LengthBytes:=EllipsisLen _
             )
             'Fill the remainder with the input text
-            Call W32TLB.MemCopy( _
+            Call bluW32.MemCopy( _
                 OutputPointer:=OutputPtr, _
                 SourcePointer:=SourcePtr, _
                   LengthBytes:=OutputLengthBytes - EllipsisLen _
@@ -256,13 +256,13 @@ Public Function FormatText( _
         '..............................................................................
         ElseIf Align = vbRightJustify Then
             'Write the ellipsis on the left hand side
-            Call W32TLB.MemCopy( _
+            Call bluW32.MemCopy( _
                 OutputPointer:=OutputPtr, _
                 SourcePointer:=EllipsisLen, _
                   LengthBytes:=EllipsisLen _
             )
             'Fill the remainder with the input text (right aligned)
-            Call W32TLB.MemCopy( _
+            Call bluW32.MemCopy( _
                 OutputPointer:=(OutputPtr + EllipsisLen), _
                 SourcePointer:=(SourcePtr + SourceLen) _
                               - OutputLengthBytes - EllipsisLen, _
@@ -287,14 +287,14 @@ Public Function FormatText( _
         
         'We prepare the first two characters (32-bits), _
          as the memory copy will walk one Long at a time
-        Let W32TLB.MemInteger(OutputPtr) = AscW(FillChar)
-        Let W32TLB.MemInteger(OutputPtr + 2) = AscW(FillChar)
+        Let bluW32.MemInteger(OutputPtr) = AscW(FillChar)
+        Let bluW32.MemInteger(OutputPtr + 2) = AscW(FillChar)
         
         'We do a memory copy within the same buffer (notice we are using our API that _
          *should* be used for copying between different buffers -- it doesn't check _
          for overlapped copies); this copies the previous four bytes to the next four _
          bytes, all the way down the string
-        Call W32TLB.MemCopyOverlap( _
+        Call bluW32.MemCopyOverlap( _
             OutputPointer:=OutputPtr + 4, _
             SourcePointer:=OutputPtr, _
               LengthBytes:=OutputLengthBytes - 4 _
@@ -304,7 +304,7 @@ Public Function FormatText( _
         '..............................................................................
         If Align = vbLeftJustify Then
             'Place the text on the left
-            Call W32TLB.MemCopy( _
+            Call bluW32.MemCopy( _
                 OutputPointer:=OutputPtr, _
                 SourcePointer:=SourcePtr, _
                   LengthBytes:=SourceLen _
@@ -313,7 +313,7 @@ Public Function FormatText( _
         '..............................................................................
         ElseIf Align = vbRightJustify Then
             'Place the text on the right
-            Call W32TLB.MemCopy( _
+            Call bluW32.MemCopy( _
                 OutputPointer:=OutputPtr + (OutputLengthBytes - SourceLen), _
                 SourcePointer:=SourcePtr, _
                   LengthBytes:=SourceLen _
@@ -365,7 +365,7 @@ Public Function Wrap( _
     Let SourceLenB = LenB(Source)
     
     'Assign a new string of the right length
-    Let Wrap = W32TLB.StringCreateUninitialized(ByVal 0&, _
+    Let Wrap = bluW32.StringCreateUninitialized(ByVal 0&, _
         (BeforeLenB + SourceLenB + AfterLenB) * 2 _
     )
     
@@ -375,9 +375,9 @@ Public Function Wrap( _
     'TODO: Handle vbNullString
     
     'Copy in the before portion
-    Call W32TLB.MemCopy(OutputPtr, StrPtr(Before), BeforeLenB)
+    Call bluW32.MemCopy(OutputPtr, StrPtr(Before), BeforeLenB)
     'Copy the source string
-    Call W32TLB.MemCopy(OutputPtr + BeforeLenB, StrPtr(Source), SourceLenB)
+    Call bluW32.MemCopy(OutputPtr + BeforeLenB, StrPtr(Source), SourceLenB)
     'Copy in the after portion
-    Call W32TLB.MemCopy(OutputPtr + BeforeLenB + SourceLenB, StrPtr(After), AfterLenB)
+    Call bluW32.MemCopy(OutputPtr + BeforeLenB + SourceLenB, StrPtr(After), AfterLenB)
 End Function

@@ -318,7 +318,7 @@ Public Function Append( _
     Let CRCValid = 0
     
     'Copy the new string in
-    Call W32TLB.MemCopy( _
+    Call bluW32.MemCopy( _
         OutputPointer:=VarPtr(Chars(Start)), _
         SourcePointer:=StrPtr(Text), _
           LengthBytes:=LenB(Text) _
@@ -430,11 +430,11 @@ Public Function CharArrayAccess( _
 ) As Integer()
     'Set the return array to share the same data as our string's character array _
      (VB cannot return an `Any()` array so this API call is type-specific)
-    Let CharArrayAccess = W32TLB.ArrayRef_Integer(Chars)
+    Let CharArrayAccess = bluW32.ArrayRef_Integer(Chars)
     
     'Increase the lock count of the array so that the user cannot redim it. _
      This lock will have to be manually removed before the class can be destroyed
-    Call W32TLB.ArrayLockAdd(W32TLB.ArrPtr(Chars))
+    Call bluW32.ArrayLockAdd(bluW32.ArrPtr(Chars))
 End Function
 
 'CharArrayUnaccess :
@@ -446,7 +446,7 @@ Public Sub CharArrayUnaccess( _
     ByRef CharArray() As Integer _
 )
     'Is this our array? (Don't let the user unlock any old array!)
-    If W32TLB.ArrPtr(CharArray) <> W32TLB.ArrPtr(Chars) Then
+    If bluW32.ArrPtr(CharArray) <> bluW32.ArrPtr(Chars) Then
         'ERROR: "Invalid Procedure Call or Argument"
         Call Err.Raise(5, , _
             "bluString.CharArrayUnaccess: The array passed is not the same as was " _
@@ -457,11 +457,11 @@ Public Sub CharArrayUnaccess( _
     
     'Remove one from the lock count. If the user has been doing weird things with _
      the array they've been given, it might have some locks remaining
-    Call W32TLB.ArrayLockRemove(W32TLB.ArrPtr(Chars))
+    Call bluW32.ArrayLockRemove(bluW32.ArrPtr(Chars))
     
     'Detach the array variable from its array structure (`SAFEARRAY`). _
      The passed array will become uninitialised
-    Let MemLong(W32TLB.VarPtr_Array(CharArray)) = 0
+    Let MemLong(bluW32.VarPtr_Array(CharArray)) = 0
 End Sub
 
 'CharInsert : Inserts a single Unicode character code
@@ -490,7 +490,7 @@ Public Function CharInsert( _
     Let CRCValid = 0
     
     'Shift the upper portion of our string up
-    Call W32TLB.MemCopy( _
+    Call bluW32.MemCopy( _
         OutputPointer:=VarPtr(Chars(Index + 1)), _
         SourcePointer:=VarPtr(Chars(Index)), _
           LengthBytes:=(My_Length - Index - 1) * 2 _
@@ -668,7 +668,7 @@ Public Property Get CharProperties( _
      a negative Index will work backwards from the end of the string
     If Not my_ValidateIndexAllowNegative(Index) Then Err.Raise (9): Exit Property
     'Use the API to fill the return value with the character properties
-    Call W32TLB.StringUnicodeInfo( _
+    Call bluW32.StringUnicodeInfo( _
                    InfoType:=w32CharType, _
               StringPointer:=VarPtr(Chars(Index)), _
                StringLength:=1, _
@@ -733,7 +733,7 @@ Public Function CharRemove( _
     'If removing just the last character, we won't need to shift the data down
     If Index < (My_Length - 1) Then
         'Shift the remainder of the string down a character
-        Call W32TLB.MemCopy( _
+        Call bluW32.MemCopy( _
             OutputPointer:=VarPtr(Chars(Index)), _
             SourcePointer:=VarPtr(Chars(Index + 1)), _
               LengthBytes:=(My_Length - Index - 1) * 2 _
@@ -795,7 +795,7 @@ Public Function Clone( _
     'Set the destination size
     Let Clone.Length = Length
     'Copy the text across (if there is any)
-    If My_Length > 0 Then Call W32TLB.MemCopy( _
+    If My_Length > 0 Then Call bluW32.MemCopy( _
         OutputPointer:=Clone.Pointer(Index), _
         SourcePointer:=VarPtr(Chars(0)), _
           LengthBytes:=Length * 2 _
@@ -931,7 +931,7 @@ Public Function Equals( _
     'Case-sensitive (binary) comparison
     '..................................................................................
     Else
-        Let Equals = (W32TLB.StringCompareBinary( _
+        Let Equals = (bluW32.StringCompareBinary( _
             String1Pointer:=StrPtr(Text), String1Length:=-1, _
             String2Pointer:=VarPtr(Chars(0)), String2Length:=-1, _
                 IgnoreCase:=BOOL_FALSE _
@@ -1015,7 +1015,7 @@ Continue:
      we don't need to move parts of the string about
     If Difference = 0 Then
         'Replace the marker
-        Call W32TLB.MemCopy( _
+        Call bluW32.MemCopy( _
             OutputPointer:=ResultPointer, _
             SourcePointer:=FormatData(Param).Pointer, _
               LengthBytes:=FormatData(Param).ByteCount _
@@ -1038,7 +1038,7 @@ Continue:
         End If
         
         'Shift up or down the remainder portion of our string
-        Call W32TLB.MemCopy( _
+        Call bluW32.MemCopy( _
             OutputPointer:=ResultPointer + FormatData(Param).ByteCount, _
             SourcePointer:=ResultPointer + MarkerLengthB, _
               LengthBytes:=Remainder _
@@ -1055,7 +1055,7 @@ Continue:
         End If
         
         'Copy the replacement string in
-        Call W32TLB.MemCopy( _
+        Call bluW32.MemCopy( _
             OutputPointer:=ResultPointer, _
             SourcePointer:=FormatData(Param).Pointer, _
               LengthBytes:=FormatData(Param).ByteCount _
@@ -1103,13 +1103,13 @@ Public Function Insert( _
     Let CRCValid = 0
     
     'Shift the upper portion of our string up to make room for the inserted string
-    Call W32TLB.MemCopy( _
+    Call bluW32.MemCopy( _
         OutputPointer:=VarPtr(Chars(Index + Len(Text))), _
         SourcePointer:=VarPtr(Chars(Index)), _
           LengthBytes:=(My_Length - Index) * 2 _
     )
     'Insert the new string
-    Call W32TLB.MemCopy( _
+    Call bluW32.MemCopy( _
         OutputPointer:=VarPtr(Chars(Index)), _
         SourcePointer:=StrPtr(Text), _
           LengthBytes:=LenB(Text) _
@@ -1148,7 +1148,7 @@ Public Function Join( _
     Let CRCValid = 0
     
     'Copy the new string in
-    Call W32TLB.MemCopy( _
+    Call bluW32.MemCopy( _
         OutputPointer:=VarPtr(Chars(Start)), _
         SourcePointer:=bluStringObj.Pointer, _
           LengthBytes:=bluStringObj.LengthBytes _
@@ -1285,7 +1285,7 @@ Public Function Load( _
     'Use the Windows API to access the file, _
      this avoids VB's slow and unwieldy error handling
     Dim FileHandle As Long
-    Let FileHandle = W32TLB.FileOpen( _
+    Let FileHandle = bluW32.FileOpen( _
             FilepathPointer:=StrPtr(FilePath), _
               DesiredAccess:=GENERIC_READ, _
                   ShareMode:=FILE_SHARE_READ, _
@@ -1303,7 +1303,7 @@ Public Function Load( _
     'Get the file size using the Windows API
     Dim FileSize As Currency
     If api_GetFileSizeEx(FileHandle, FileSize) = BOOL_FALSE Then
-        Call W32TLB.FileClose(FileHandle)
+        Call bluW32.FileClose(FileHandle)
         Stop
         Exit Function
     End If
@@ -1315,7 +1315,7 @@ Public Function Load( _
     'Note that we cannot open a file larger than 2 GB as we will be walking _
      the buffer using a signed Long which will go negative above 2 Billion
     If FileSize > FILE_MAX Then
-        Call W32TLB.FileClose(FileHandle)
+        Call bluW32.FileClose(FileHandle)
         Stop
         Exit Function
     End If
@@ -1335,7 +1335,7 @@ Public Function Load( _
     OverlappedPointer:=0& _
     )
     
-    Call W32TLB.FileClose(FileHandle)
+    Call bluW32.FileClose(FileHandle)
     
     '----------------------------------------------------------------------------------
     
@@ -1663,7 +1663,7 @@ Public Function Overwrite( _
     If Not my_ValidateRange(Index, Length) Then Err.Raise (9): Exit Function
     
     'Now just copy the new text over the top of our string
-    Call W32TLB.MemCopy( _
+    Call bluW32.MemCopy( _
         OutputPointer:=VarPtr(Chars(Index)), _
         SourcePointer:=StrPtr(Text), _
           LengthBytes:=Length * 2 _
@@ -1718,7 +1718,7 @@ Public Function Prepend( _
     'Shift our string up
     Call my_UnsafeCopy(0, Start, My_Length)
     'Copy the new string in
-    Call W32TLB.MemCopy( _
+    Call bluW32.MemCopy( _
         OutputPointer:=VarPtr(Chars(0)), _
         SourcePointer:=StrPtr(Text), _
           LengthBytes:=LenB(Text) _
@@ -1826,7 +1826,7 @@ Continue:
      we don't need to move parts of our string about
     If Difference = 0 Then
         'Replace the found string
-        Call W32TLB.MemCopy( _
+        Call bluW32.MemCopy( _
             OutputPointer:=ResultPointer, _
             SourcePointer:=StrPtr_ReplaceWith, _
               LengthBytes:=LenB_ReplaceWith _
@@ -1848,7 +1848,7 @@ Continue:
         End If
         
         'Shift up or down the remainder portion of our string
-        Call W32TLB.MemCopy( _
+        Call bluW32.MemCopy( _
             OutputPointer:=ResultPointer + LenB_ReplaceWith, _
             SourcePointer:=ResultPointer + LenB_SearchFor, _
               LengthBytes:=Remainder _
@@ -1865,7 +1865,7 @@ Continue:
         End If
         
         'Copy the replacement string in
-        Call W32TLB.MemCopy( _
+        Call bluW32.MemCopy( _
             OutputPointer:=ResultPointer, _
             SourcePointer:=StrPtr_ReplaceWith, _
               LengthBytes:=LenB_ReplaceWith _
@@ -1977,7 +1977,7 @@ Public Function SplitWords( _
     
     'Call the Windows API; this will convert each character of our string _
      into a bit-pattern of its Unicode properties (see the `C1` enum)
-    Call W32TLB.StringUnicodeInfo( _
+    Call bluW32.StringUnicodeInfo( _
                    InfoType:=w32CharType, _
               StringPointer:=VarPtr(Chars(0)), _
                StringLength:=My_Length, _
@@ -2062,7 +2062,7 @@ AddWord:
     
     Let WordLength = WordEnd - WordBegin
     Let OutArray(WordCount) = Space$(WordLength)
-    Call W32TLB.MemCopy( _
+    Call bluW32.MemCopy( _
         OutputPointer:=StrPtr(OutArray(WordCount)), _
         SourcePointer:=VarPtr(Chars(WordBegin)), _
           LengthBytes:=WordLength * 2 _
@@ -2079,9 +2079,9 @@ Attribute Text.VB_MemberFlags = "200"
         Let Text = vbNullString
     Else
         'Pad the return String to the right size
-        Let Text = W32TLB.StringCreateUninitialized(ByVal 0&, My_Length)
+        Let Text = bluW32.StringCreateUninitialized(ByVal 0&, My_Length)
         'Copy our String into the return field
-        Call W32TLB.MemCopy( _
+        Call bluW32.MemCopy( _
             OutputPointer:=StrPtr(Text), _
             SourcePointer:=VarPtr(Chars(0)), _
               LengthBytes:=My_LengthB _
@@ -2098,7 +2098,7 @@ Public Property Let Text( _
          The buffer will be allocated appropriately
         Call my_SetLength(Len(NewString))
         'Copy the VB String data over
-        Call W32TLB.MemCopy( _
+        Call bluW32.MemCopy( _
             OutputPointer:=VarPtr(Chars(0)), _
             SourcePointer:=StrPtr(NewString), _
               LengthBytes:=LenB(NewString) _
@@ -2229,7 +2229,7 @@ Public Function TrimToNull( _
     
     'We now clip our string to fit the length given by the first Null found
     Call my_SetLength( _
-        W32TLB.StringLengthUpToNull(VarPtr(Chars(0))) _
+        bluW32.StringLengthUpToNull(VarPtr(Chars(0))) _
     )
 End Function
 
@@ -2281,7 +2281,7 @@ Public Function Truncate( _
         'Replace our string with the ellipsis _
          (this also clears the CRC)
         Call my_SetLength(EllipsisLength)
-        Call W32TLB.MemCopy( _
+        Call bluW32.MemCopy( _
             OutputPointer:=VarPtr(Chars(0)), _
             SourcePointer:=StrPtr(Ellipsis), _
               LengthBytes:=LenB(Ellipsis) _
@@ -2314,7 +2314,7 @@ Public Function Truncate( _
     'Call the Windows API to fetch the Unicode character properties
     'TODO: Handle API errors
     Dim CharProps(0 To 14) As Integer
-    Call W32TLB.StringUnicodeInfo( _
+    Call bluW32.StringUnicodeInfo( _
                    InfoType:=w32CharType, _
               StringPointer:=VarPtr(Chars(PropsIndex)), _
                StringLength:=PropsLength, _
@@ -2334,7 +2334,7 @@ Public Function Truncate( _
             'Changes to our string will invalidate the CRC
             Let CRCValid = 0
             'Insert the ellipsis at the end
-            If EllipsisLength <> 0 Then Call W32TLB.MemCopy( _
+            If EllipsisLength <> 0 Then Call bluW32.MemCopy( _
                 OutputPointer:=VarPtr(Chars(PropsIndex + i)), _
                 SourcePointer:=StrPtr(Ellipsis), _
                   LengthBytes:=LenB(Ellipsis) _
@@ -2353,7 +2353,7 @@ Public Function Truncate( _
     Let CRCValid = 0
     
     'Insert the ellipsis at the end
-    If EllipsisLength <> 0 Then Call W32TLB.MemCopy( _
+    If EllipsisLength <> 0 Then Call bluW32.MemCopy( _
         OutputPointer:=VarPtr(Chars(MaxLength)), _
         SourcePointer:=StrPtr(Ellipsis), _
           LengthBytes:=LenB(Ellipsis) _
@@ -2589,7 +2589,7 @@ Private Sub my_UnsafeCopy( _
     ByRef IndexTo As Long, _
     ByRef Length As Long _
 )   'NO VALIDATION! INTERNAL USE ONLY!
-    Call W32TLB.MemCopy( _
+    Call bluW32.MemCopy( _
         VarPtr(Chars(IndexTo)), VarPtr(Chars(IndexFrom)), Length * 2 _
     )
 End Sub
@@ -2605,7 +2605,7 @@ Private Sub my_UnsafeCopyString( _
 )   'NO VALIDATION! INTERNAL USE ONLY!
     '(This will overwrite anything already in place, so it's assumed you've already _
       handled resizing the string and copying things out)
-    Call W32TLB.MemCopy( _
+    Call bluW32.MemCopy( _
         VarPtr(Chars(Index)), StrPtr(Text), LenB(Text) _
     )
 End Sub

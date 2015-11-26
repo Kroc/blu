@@ -1,0 +1,378 @@
+/*      bluW32; Copyright (c) 2015 Kroc Camen
+        MIT Licence:
+        
+        Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+        documentation files (the "Software"), to deal in the Software without restriction, including without limitation
+        the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
+        and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+        *       The above copyright notice and this permission notice shall be included
+                in all copies or substantial portions of the Software.
+
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+        THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+        TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        SOFTWARE.
+*/
+//--------------------------------------------------------------------------------------------------------------------------
+/*      
+        WARNING:
+        
+        If you modify this code at all for your own use then please, for the love of  all that is good, make certain that
+        you change the "UUID" in the library header (below), and on any definition (that has one) that you have modified.
+        (You can use the GUIDGEN or UUID programs in the "Microsoft Visual Studio\Common\Tools" folder)
+        
+        This is so that your modified TLB does not conflict with the original work;
+        let's not create "DLL Hell" on User's machines
+*/
+
+//define our "library", the overall container for our work
+//==========================================================================================================================
+[       //the unique identifier for this library, should it be registered
+        uuid(CD88A2F5-1F95-4acd-9C3F-C304E35B40AC)
+,       helpstring("WIN32 API support for the blu framework")
+        //this version number should be updated with each release
+,       version(0.1)
+]
+library bluW32
+{
+
+typedef
+[       uuid(E6E6A379-3339-48e7-9049-40194E12D654)
+,       helpstring("In VB6 True is -1 and False is 0, but in the Win32 API it's 1 for True")
+,       version(1.0)
+,       v1_enum
+]
+enum    BOOL
+        //------------------------------------------------------------------------------------------------------------------
+{       BOOL_FALSE                      = 0
+,       BOOL_TRUE                       = 1
+}       BOOL;
+
+typedef
+[       uuid(7A062F17-3115-4698-B186-D3A5EBC5A20B)
+,       version(1.0)
+,       v1_enum
+]
+enum    StringCompareResult
+        //------------------------------------------------------------------------------------------------------------------
+{       w32CompareError                 = 0
+,       w32LessThan                     = 1
+,       w32Equal                        = 2
+,       w32Greater                      = 3
+}       StringCompareResult;
+
+typedef
+[       uuid(1379F0E8-9398-49dd-B1C3-5C852E077411)
+,       version(1.0)
+,       v1_enum
+]
+enum    StringUnicodeInfoType
+        //------------------------------------------------------------------------------------------------------------------
+{       [helpstring("Retrieve character Unicode properties")]
+        w32CharType                     = 1
+,       [helpstring("Retrieve bi-directional layout information")]
+        w32BiDiLayout                   = 2
+,       [helpstring("Retrieve text-processing information")]
+        w32TextProcessing               = 3
+}       StringUnicodeInfoType;
+
+//==========================================================================================================================
+
+[       dllname("kernel32")
+,       uuid(07F9BC5E-3D95-4f01-99AD-87ED5E44AE07)
+,       version(1.03)
+]
+module  kernel32
+{
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/aa366535(v=vs.85).aspx
+        [       entry("RtlMoveMemory")
+        ,       helpstring("Copy memory from one location to another. Overlapping portions are handled correctly")
+        ]
+        //------------------------------------------------------------------------------------------------------------------
+        void    MemCopy
+        (//_____access__________________type____________________name:
+                [in]                    int                     OutputPointer
+        ,       [in]                    int                     SourcePointer
+        ,       [in]                    int                     LengthBytes
+        );
+        
+        [       entry("RtlZeroMemory")
+        ,       helpstring("Zero-out a portion of memory")
+        ]
+        //------------------------------------------------------------------------------------------------------------------
+        void    MemZero
+        (//_____access__________________type____________________name:
+                [in]                    int                     OutputPointer
+        ,       [in]                    int                     LengthBytes
+        );
+        
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/ms647492%28v=vs.85%29.aspx
+        [       entry("lstrlenW")
+        ]
+        //------------------------------------------------------------------------------------------------------------------
+        long    StringLengthUpToNull
+        (//_____access__________________type____________________name:
+                [in]                    long                    StringPointer
+        );
+        
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/dd317762(v=vs.85).aspx
+        [       entry("CompareStringOrdinal")
+        ]
+        long    StringCompareBinary
+        (//_____access__________________type____________________name:
+                [in]                    long                    String1Pointer
+        ,       [in]                    long                    String1Length
+        ,       [in]                    long                    String2Pointer
+        ,       [in]                    long                    String2Length
+        ,       [in, defaultvalue(0)]   BOOL                    IgnoreCase
+        ,       [out, retval]           StringCompareResult    *Result
+        );
+        
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/dd318119(v=vs.85).aspx
+        [       entry("GetStringTypeW")
+        ]
+        BOOL    StringUnicodeInfo
+        (//_____access__________________type____________________name:
+                [in]                    StringUnicodeInfoType   InfoType
+        ,       [in]                    long                    StringPointer
+        ,       [in]                    long                    StringLength
+        ,       [in, out]               short                  *ResultArrayFirstElement
+        );
+        
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/aa363858(v=vs.85).aspx
+        [       entry("CreateFileW")
+        ]
+        long    FileOpen
+        (//_____access__________________type____________________name:
+                [in]                    long                    FilepathPointer
+        ,       [in]                    long                    DesiredAccess
+        ,       [in]                    long                    ShareMode
+        ,       [in]                    long                    SecurityAttributes
+        ,       [in]                    long                    CreationDisposition
+        ,       [in]                    long                    FlagsAndAttributes
+        ,       [in, defaultvalue(0)]   long                    TemplateFile
+        );
+        
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/ms724211(v=vs.85).aspx
+        [       entry("CloseHandle")
+        ]
+        BOOL    FileClose
+        (//_____access__________________type____________________name:
+                [in]                    long                    FileHandle
+        );
+};
+
+//==========================================================================================================================
+
+[       dllname("msvbvm60")
+,       uuid(EB6AA166-564F-4e80-9B7D-BA5B3BE0DE80)
+,       version(1.02)      
+]
+module  msvbvm60
+{
+        /*      `RtlMoveMemory` automatically handles overlapped memory, copying in the correct direction to avoid
+                conflict, however some times you want to lay down a set of bytes repeatedly and the fastest way to do
+                this by far is to use an overlapping memory copy
+        */
+        [       entry("__vbaCopyBytes")
+        ,       helpstring("This can be used to repeat a set of bytes along a buffer")
+        ]
+        //------------------------------------------------------------------------------------------------------------------
+        void    MemCopyOverlap
+        (//_____access__________________type____________________name:
+                [in]                    int                     LengthBytes
+        ,       [in]                    int                     OutputPointer
+        ,       [in]                    int                     SourcePointer
+        );
+        
+        [       entry("GetMem1")
+        ,       helpstring("Sets or returns the Byte value at the specified memory address")
+        ,       propget
+        ]
+        //------------------------------------------------------------------------------------------------------------------
+        HRESULT MemByte
+        (//_____access__________________type____________________name:
+                [in]                    int                     Address
+        ,       [out, retval]           byte                   *lpRetVal
+        );
+        [       entry("PutMem1")
+        ,       propput
+        ]
+        HRESULT MemByte
+        (//_____access__________________type____________________name:
+                [in]                    int                     Address
+        ,       [in]                    byte                    NewValue
+        );
+        
+        //------------------------------------------------------------------------------------------------------------------
+        
+        [       entry("GetMem2")
+        ,       helpstring("Sets or returns the 16-bit Integer value at the specified memory address")
+        ,       propget
+        ]
+        HRESULT MemInteger
+        (//_____access__________________type____________________name:
+                [in]                    int                     Address
+        ,       [out, retval]           short                  *lpRetVal
+        );
+        [       entry("PutMem2")
+        ,       propput
+        ]
+        HRESULT MemInteger
+        (//_____access__________________type____________________name:
+                [in]                    int                     Address
+        ,       [in]                    short                   NewValue
+        );
+        
+        //------------------------------------------------------------------------------------------------------------------
+        
+        [       entry("GetMem4")
+        ,       helpstring("Sets or returns the 32-bit Long value at the specified memory address")
+        ,       propget
+        ]
+        HRESULT MemLong
+        (//_____access__________________type____________________name:
+                [in]                    int                     Address
+        ,       [out, retval]           long                   *lpRetVal
+        );
+        [       entry("PutMem4")
+            ,       propput
+        ]
+        HRESULT MemLong
+        (//_____access__________________type____________________name:
+                [in]                    int                     Address
+        ,       [in]                    long                    NewValue
+        );
+        
+        //------------------------------------------------------------------------------------------------------------------
+        
+        [       entry("GetMem8")
+        ,       propget
+        ]
+        HRESULT MemDouble
+        (//_____access__________________type____________________name:
+                [in]                    int                     Address
+        ,       [out, retval]           double                 *Value
+        );
+        
+        [       entry("PutMem8")
+        ,       propput
+        ]
+        HRESULT MemDouble
+        (//_____access__________________type____________________name:
+                [in]                    int                     Address
+        ,       [in]                    double                  NewValue
+        );
+        
+        [       entry("VarPtr")
+        ,       helpstring("Get the pointer of an array variable (i.e. the same as `VarPtr`, but for array types); VB arrays are 'pointers to a pointer to a SAFEARRAY structure' so this API only gets you the first pointer. Use `ArrPtr` to get the second pointer")
+        ]
+        long    VarPtr_Array
+        (//_____access__________________type____________________name:
+                [in]                    SAFEARRAY(void)        *VBArray
+        ,       [out, retval]           long                   *lpRetVal
+        );
+        
+        //------------------------------------------------------------------------------------------------------------------
+        
+        [       entry("GetMem4")
+        ]
+        HRESULT ArrPtr
+        (//_____access__________________type____________________name:
+                [in, out]               SAFEARRAY(void)        *VBArray
+        ,       [out, retval]           long                   *lpRetVal
+        );
+        
+        //------------------------------------------------------------------------------------------------------------------
+        
+        [       entry("GetMem4")
+        ,       helpstring("Gets a reference to a Byte array, allowing you assign more than one array to the same data; e.g. `Let Arr2 = ArrayRef_Byte(Arr1)`. The data is not copied")
+        ]
+        HRESULT ArrayRef_Byte
+        (//_____access__________________type____________________name:
+                [in, out]               SAFEARRAY(void)        *VBArray
+        ,       [out, retval]           SAFEARRAY(byte)        *lpRetVal
+        );
+        
+        //------------------------------------------------------------------------------------------------------------------
+        
+        [       entry("GetMem4")
+        ,       helpstring("Gets a reference to an Integer array, allowing you assign more than one array to the same data; e.g. `Let Arr2 = ArrayRef_Integer(Arr1)`. The data is not copied")
+        ]
+        HRESULT ArrayRef_Integer
+        (//_____access__________________type____________________name:
+                [in, out]               SAFEARRAY(void)        *VBArray
+        ,       [out, retval]           SAFEARRAY(short)       *lpRetVal
+        );
+        
+        //------------------------------------------------------------------------------------------------------------------
+        
+        [       entry("GetMem4")
+        ,       helpstring("Gets a reference to a Long array, allowing you assign more than one array to the same data; e.g. `Let Arr2 = ArrayRef_Long(Arr1)`. The data is not copied")
+        ]
+        HRESULT ArrayRef_Long
+        (//_____access__________________type____________________name:
+                [in, out]               SAFEARRAY(void)        *VBArray
+        ,       [out, retval]           SAFEARRAY(long)        *lpRetVal
+        );
+        
+        //------------------------------------------------------------------------------------------------------------------
+        
+        [       entry("GetMem4")
+        ,       helpstring("Gets a reference to a Double array, allowing you assign more than one array to the same data; e.g. `Let Arr2 = ArrayRef_Double(Arr1)`. The data is not copied")
+        ]
+        HRESULT ArrayRef_Double
+        (//_____access__________________type____________________name:
+                [in, out]               SAFEARRAY(void)        *VBArray
+        ,       [out, retval]           SAFEARRAY(double)      *lpRetVal
+        );
+        
+        
+};
+
+//==========================================================================================================================
+
+[       dllname("oleaut32")
+,       uuid(90DDDDC6-7915-4cbf-AC16-FEFBB2118132)
+,       version(1.02)
+]
+module  oleaut32
+{
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/ms221639(v=vs.85).aspx
+        [       entry("SysAllocStringLen")
+        ,       helpstring("Creates a VB String (`BSTR`) with no initialised contents (VB fills strings with spaces)")
+        ]
+        //------------------------------------------------------------------------------------------------------------------
+        BSTR    StringCreateUninitialized
+        (//_____access__________________type____________________name:
+                [in]                    void                   *Null
+        ,       [in]                    int                     StringLength
+        );
+        
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/ms221492%28v=vs.85%29.aspxs
+        [       entry("SafeArrayLock")
+        ,       helpstring("Add a lock to a VB Array; a locked Array cannot be resized or erased. Note that this will initialize the array data if needed. Multiple locks can be added, and an equal amount need to be removed")
+        ]
+        //------------------------------------------------------------------------------------------------------------------
+        HRESULT ArrayLockAdd
+        (//_____access__________________type____________________name:
+                [in]                    long                    ICanHaz_ArrPtr_plz
+        );
+        
+        //https://msdn.microsoft.com/en-us/library/windows/desktop/ms221246%28v=vs.85%29.aspx
+        [       entry("SafeArrayUnlock")
+        ,       helpstring("Remove a lock from a VB Array. An equal number of locks must be removed as have been added")
+        ]
+        //------------------------------------------------------------------------------------------------------------------
+        HRESULT ArrayLockRemove
+        (//_____access__________________type____________________name:
+                [in]                    long                    ICanHaz_ArrPtr_plz
+        );
+};
+
+
+
+//END OF LIBRARY
+};

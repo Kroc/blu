@@ -1,12 +1,11 @@
 *
 !.gitattributes
 !.gitignore
-!.gitmodules
 
 !CORE
 !DEBUG
 !FILESYSTEM
-!W32TLB
+!TLB
 !UI
 
 !*.txt
